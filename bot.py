@@ -11,100 +11,152 @@ URL = f"https://api.telegram.org/bot{TOKEN}"
 def format_time(dt):
     return dt.strftime("%A | %B %d, %Y at %H:%M:%S")
     
+from PIL import Image, ImageDraw, ImageFont
+from datetime import datetime, timezone, timedelta
+
+def format_time(dt):
+    return dt.strftime("%A | %B %d, %Y at %H:%M:%S")
+
 def add_watermark(input_path, output_path):
     img = Image.open(input_path).convert("RGBA")
     width, height = img.size
 
-    overlay = Image.new("RGBA", img.size, (0,0,0,0))
+    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
 
     # ===== FONT =====
     try:
-        font_title = ImageFont.truetype("arial.ttf", 20)
-        font_text = ImageFont.truetype("arial.ttf", 15)
-        font_small = ImageFont.truetype("arial.ttf", 13)
+        font_title = ImageFont.truetype("arial.ttf", 18)
+        font_label = ImageFont.truetype("arial.ttf", 11)
+        font_time = ImageFont.truetype("arialbd.ttf", 14)  # Bold untuk waktu
+        font_status = ImageFont.truetype("arial.ttf", 12)
+        font_small = ImageFont.truetype("arial.ttf", 10)
     except:
-        font_title = font_text = font_small = ImageFont.load_default()
+        font_title = font_label = font_time = font_status = font_small = ImageFont.load_default()
 
     # ===== TIME =====
     utc = datetime.now(timezone.utc)
-    wib = utc + timedelta(hours=7)
+    local = utc + timedelta(hours=7)  # Sesuaikan dengan timezone lokal
 
-    line1 = format_time(utc)
-    line2 = format_time(wib)
+    line_utc = format_time(utc)
+    line_local = format_time(local)
 
-    # ===== SIZE DINAMIS =====
-    padding = 25
-    text_width = max(
-        draw.textlength(line1, font=font_text),
-        draw.textlength(line2, font=font_text)
-    )
-
-    box_w = int(text_width + 160)
-    box_h = 190
+    # ===== UKURAN BOX =====
+    box_w = 420
+    box_h = 200
 
     x = width - box_w - 20
     y = height - box_h - 20
 
-    # ===== BACKGROUND UTAMA (PUTIH) =====
+    # ===== WARNA =====
+    bg_dark = (30, 30, 30)
+    bg_time_block = (40, 40, 40)
+    text_gray = (120, 120, 120)
+    text_white = (255, 255, 255)
+    accent_yellow = (255, 200, 60)
+    accent_green = (80, 200, 120)
+    btn_cyan = (0, 180, 180)
+    btn_cyan_dark = (0, 150, 150)
+
+    # =========================
+    # BACKGROUND UTAMA (DARK)
+    # =========================
     draw.rounded_rectangle(
-        [x, y, x+box_w, y+box_h],
-        radius=22,
-        fill=(255,255,255)
+        [x, y, x + box_w, y + box_h],
+        radius=16,
+        fill=bg_dark
     )
 
     # =========================
-    # 🔳 BAGIAN 1: HEADER (HITAM)
+    # HEADER
     # =========================
-    draw.rounded_rectangle(
-        [x, y, x+box_w, y+45],
-        radius=22,
-        fill=(20,20,20)
-    )
-
     # Traffic light
     r = 6
-    draw.ellipse([x+14, y+15, x+14+r*2, y+15+r*2], fill=(255,95,86))
-    draw.ellipse([x+32, y+15, x+32+r*2, y+15+r*2], fill=(255,189,46))
-    draw.ellipse([x+50, y+15, x+50+r*2, y+15+r*2], fill=(39,201,63))
+    draw.ellipse([x + 15, y + 15, x + 15 + r*2, y + 15 + r*2], fill=(255, 95, 86))
+    draw.ellipse([x + 35, y + 15, x + 35 + r*2, y + 15 + r*2], fill=(255, 189, 46))
+    draw.ellipse([x + 55, y + 15, x + 55 + r*2, y + 15 + r*2], fill=(39, 201, 63))
 
-    # Title
-    draw.text((x+80, y+12), "Yoski Time", fill=(255,255,255), font=font_title)
+    # Title (center)
+    title = "Bob's Time"
+    title_bbox = draw.textbbox((0, 0), title, font=font_title)
+    title_w = title_bbox[2] - title_bbox[0]
+    draw.text((x + (box_w - title_w) // 2, y + 12), title, fill=text_gray, font=font_title)
 
     # =========================
-    # ⚪ BAGIAN 2: MAIN (PUTIH + BLOK HITAM)
+    # SERVER TIME (UTC)
     # =========================
+    draw.text((x + 20, y + 45), "SERVER TIME (UTC)", fill=text_gray, font=font_label)
 
-    # Label
-    draw.text((x+20, y+60), "SERVER TIME (UTC)", fill=(80,80,80), font=font_small)
-
-    # Blok hitam untuk waktu
+    # Blok waktu UTC
     draw.rounded_rectangle(
-        [x+20, y+80, x+box_w-20, y+110],
-        radius=10,
-        fill=(20,20,20)
+        [x + 20, y + 60, x + 280, y + 90],
+        radius=6,
+        fill=bg_time_block
     )
-    draw.text((x+30, y+88), line1, fill=(255,255,255), font=font_text)
+    draw.text((x + 35, y + 68), line_utc, fill=accent_yellow, font=font_time)
 
-    # Label 2
-    draw.text((x+20, y+120), "LOCAL TIME (WIB)", fill=(80,80,80), font=font_small)
+    # =========================
+    # LOCAL PC TIME
+    # =========================
+    draw.text((x + 20, y + 100), "LOCAL PC TIME", fill=text_gray, font=font_label)
 
-    # Blok hitam untuk waktu 2
+    # Blok waktu Local
     draw.rounded_rectangle(
-        [x+20, y+140, x+box_w-20, y+170],
-        radius=10,
-        fill=(20,20,20)
+        [x + 20, y + 115, x + 280, y + 145],
+        radius=6,
+        fill=bg_time_block
     )
-    draw.text((x+30, y+148), line2, fill=(255,255,255), font=font_text)
+    draw.text((x + 35, y + 123), line_local, fill=accent_yellow, font=font_time)
 
     # =========================
-    # ⚪ BAGIAN 3: FOOTER (PUTIH)
+    # TOMBOL KANAN
     # =========================
-    draw.text((x+20, y+box_h-25), "● LIVE SYNCED", fill=(0,150,80), font=font_small)
+    btn_x = x + 295
+    btn_w = 105
+    btn_h = 32
+
+    # Sync Now button
+    draw.rounded_rectangle(
+        [btn_x, y + 55, btn_x + btn_w, y + 55 + btn_h],
+        radius=8,
+        fill=btn_cyan
+    )
+    draw.text((btn_x + 20, y + 62), "↻ Sync Now", fill=text_white, font=font_status)
+
+    # Auto (2s) button
+    draw.rounded_rectangle(
+        [btn_x, y + 95, btn_x + btn_w, y + 95 + btn_h],
+        radius=8,
+        fill=btn_cyan_dark
+    )
+    draw.text((btn_x + 18, y + 102), "⏱ Auto (2s)", fill=text_white, font=font_status)
+
+    # Settings button
+    draw.rounded_rectangle(
+        [btn_x, y + 135, btn_x + btn_w, y + 135 + btn_h],
+        radius=8,
+        fill=(50, 50, 50)
+    )
+    draw.text((btn_x + 18, y + 142), "⚙ Settings", fill=text_gray, font=font_status)
+
+    # =========================
+    # FOOTER
+    # =========================
+    draw.text((x + 20, y + 170), "●", fill=accent_green, font=font_status)
+    draw.text((x + 35, y + 170), "Synced Perfectly", fill=accent_green, font=font_status)
+
+    # Diff info (kanan bawah)
+    diff_text = "diff: 0.7s via NIST"
+    diff_bbox = draw.textbbox((0, 0), diff_text, font=font_small)
+    diff_w = diff_bbox[2] - diff_bbox[0]
+    draw.text((x + box_w - diff_w - 20, y + 172), diff_text, fill=text_gray, font=font_small)
 
     # ===== FINAL =====
     result = Image.alpha_composite(img, overlay)
-    result.convert("RGB").save(output_path)    
+    result.convert("RGB").save(output_path)
+
+# Contoh penggunaan
+# add_watermark("input.png", "output.png")
     
 def get_updates(offset=None):
     url = f"{URL}/getUpdates"
