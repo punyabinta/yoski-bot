@@ -10,12 +10,6 @@ URL = f"https://api.telegram.org/bot{TOKEN}"
 
 def format_time(dt):
     return dt.strftime("%A | %B %d, %Y at %H:%M:%S")
-    
-from PIL import Image, ImageDraw, ImageFont
-from datetime import datetime, timezone, timedelta
-
-def format_time(dt):
-    return dt.strftime("%A | %B %d, %Y at %H:%M:%S")
 
 def add_watermark(input_path, output_path):
     img = Image.open(input_path).convert("RGBA")
@@ -77,7 +71,7 @@ def add_watermark(input_path, output_path):
     draw.ellipse([x + 55, y + 15, x + 55 + r*2, y + 15 + r*2], fill=(39, 201, 63))
 
     # Title (center)
-    title = "Bob's Time"
+    title = "Pozko Time"
     title_bbox = draw.textbbox((0, 0), title, font=font_title)
     title_w = title_bbox[2] - title_bbox[0]
     draw.text((x + (box_w - title_w) // 2, y + 12), title, fill=text_gray, font=font_title)
@@ -129,7 +123,7 @@ def add_watermark(input_path, output_path):
         radius=8,
         fill=btn_cyan_dark
     )
-    draw.text((btn_x + 18, y + 102), "⏱ Auto (2s)", fill=text_white, font=font_status)
+    draw.text((btn_x + 18, y + 102), "⏱ Auto Sync", fill=text_white, font=font_status)
 
     # Settings button
     draw.rounded_rectangle(
@@ -146,7 +140,7 @@ def add_watermark(input_path, output_path):
     draw.text((x + 35, y + 170), "Synced Perfectly", fill=accent_green, font=font_status)
 
     # Diff info (kanan bawah)
-    diff_text = "diff: 0.7s via NIST"
+    diff_text = "diff: 0.0s via NIST"
     diff_bbox = draw.textbbox((0, 0), diff_text, font=font_small)
     diff_w = diff_bbox[2] - diff_bbox[0]
     draw.text((x + box_w - diff_w - 20, y + 172), diff_text, fill=text_gray, font=font_small)
