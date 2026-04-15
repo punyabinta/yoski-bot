@@ -11,6 +11,12 @@ URL = f"https://api.telegram.org/bot{TOKEN}"
 def format_time(dt):
     return dt.strftime("%A | %B %d, %Y at %H:%M:%S")
 
+from PIL import Image, ImageDraw, ImageFont
+from datetime import datetime, timezone, timedelta
+
+def format_time(dt):
+    return dt.strftime("%A | %B %d, %Y at %H:%M:%S")
+
 def add_watermark(input_path, output_path):
     img = Image.open(input_path).convert("RGBA")
     width, height = img.size
