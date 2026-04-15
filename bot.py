@@ -33,75 +33,78 @@ def add_watermark(input_path, output_path):
     line1 = format_time(utc)
     line2 = format_time(wib)
 
+    # ===== SIZE DINAMIS =====
     padding = 25
     text_width = max(
         draw.textlength(line1, font=font_text),
         draw.textlength(line2, font=font_text)
     )
 
-    box_w = int(text_width + 200)
+    box_w = int(text_width + 160)
     box_h = 190
 
     x = width - box_w - 20
     y = height - box_h - 20
 
-    # ===== BACKGROUND PUTIH =====
+    # ===== BACKGROUND UTAMA (PUTIH) =====
     draw.rounded_rectangle(
         [x, y, x+box_w, y+box_h],
         radius=22,
-        fill=(255, 255, 255, 255)
+        fill=(255,255,255)
     )
 
-    # ===== TITLE BAR =====
+    # =========================
+    # 🔳 BAGIAN 1: HEADER (HITAM)
+    # =========================
     draw.rounded_rectangle(
-        [x, y, x+box_w, y+40],
+        [x, y, x+box_w, y+45],
         radius=22,
-        fill=(240,240,240)
-    )
-
-    # ===== TRAFFIC LIGHT =====
-    r = 7
-    draw.ellipse([x+14, y+14, x+14+r*2, y+14+r*2], fill=(255,95,86))
-    draw.ellipse([x+36, y+14, x+36+r*2, y+14+r*2], fill=(255,189,46))
-    draw.ellipse([x+58, y+14, x+58+r*2, y+14+r*2], fill=(39,201,63))
-
-    draw.text((x+100, y+12), "Yoski Time", fill=(50,50,60), font=font_title)
-
-    # ===== CARD HITAM (TIME PANEL) =====
-    card_x1 = x + 20
-    card_x2 = x + box_w - 120
-
-    draw.rounded_rectangle(
-        [card_x1, y+55, card_x2, y+150],
-        radius=16,
         fill=(20,20,20)
     )
 
-    # ===== TEXT TIME =====
-    draw.text((card_x1+15, y+65), "SERVER TIME (UTC)", fill=(120,180,255), font=font_small)
-    draw.text((card_x1+15, y+85), line1, fill=(200,255,255), font=font_text)
+    # Traffic light
+    r = 6
+    draw.ellipse([x+14, y+15, x+14+r*2, y+15+r*2], fill=(255,95,86))
+    draw.ellipse([x+32, y+15, x+32+r*2, y+15+r*2], fill=(255,189,46))
+    draw.ellipse([x+50, y+15, x+50+r*2, y+15+r*2], fill=(39,201,63))
 
-    draw.text((card_x1+15, y+110), "LOCAL TIME (WIB)", fill=(200,200,200), font=font_small)
-    draw.text((card_x1+15, y+130), line2, fill=(255,210,120), font=font_text)
+    # Title
+    draw.text((x+80, y+12), "Yoski Time", fill=(255,255,255), font=font_title)
 
-    # ===== BUTTON AUTO SYNC =====
-    btn_x1 = x + box_w - 100
-    btn_x2 = x + box_w - 20
+    # =========================
+    # ⚪ BAGIAN 2: MAIN (PUTIH + BLOK HITAM)
+    # =========================
 
+    # Label
+    draw.text((x+20, y+60), "SERVER TIME (UTC)", fill=(80,80,80), font=font_small)
+
+    # Blok hitam untuk waktu
     draw.rounded_rectangle(
-        [btn_x1, y+70, btn_x2, y+105],
+        [x+20, y+80, x+box_w-20, y+110],
         radius=10,
-        fill=(0,122,255)
+        fill=(20,20,20)
     )
+    draw.text((x+30, y+88), line1, fill=(255,255,255), font=font_text)
 
-    draw.text((btn_x1+12, y+78), "Auto Sync", fill=(255,255,255), font=font_small)
+    # Label 2
+    draw.text((x+20, y+120), "LOCAL TIME (WIB)", fill=(80,80,80), font=font_small)
 
-    # ===== STATUS BAR =====
-    draw.text((x+20, y+box_h-25), "● LIVE SYNCED", fill=(0,180,80), font=font_small)
+    # Blok hitam untuk waktu 2
+    draw.rounded_rectangle(
+        [x+20, y+140, x+box_w-20, y+170],
+        radius=10,
+        fill=(20,20,20)
+    )
+    draw.text((x+30, y+148), line2, fill=(255,255,255), font=font_text)
+
+    # =========================
+    # ⚪ BAGIAN 3: FOOTER (PUTIH)
+    # =========================
+    draw.text((x+20, y+box_h-25), "● LIVE SYNCED", fill=(0,150,80), font=font_small)
 
     # ===== FINAL =====
     result = Image.alpha_composite(img, overlay)
-    result.convert("RGB").save(output_path)
+    result.convert("RGB").save(output_path)    
     
 def get_updates(offset=None):
     url = f"{URL}/getUpdates"
