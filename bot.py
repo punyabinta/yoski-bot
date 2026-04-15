@@ -3,6 +3,7 @@ import time
 import requests
 from PIL import Image, ImageDraw, ImageFont
 from datetime import datetime, timezone
+from datetime import timedelta
 
 TOKEN = os.getenv("BOT_TOKEN")
 URL = f"https://api.telegram.org/bot{TOKEN}"
@@ -17,26 +18,43 @@ def add_watermark(input_path, output_path):
     overlay = Image.new("RGBA", img.size, (0,0,0,0))
     draw = ImageDraw.Draw(overlay)
 
+    # ====== FONT ======
+    try:
+        font_title = ImageFont.truetype("arial.ttf", 20)
+        font_text = ImageFont.truetype("arial.ttf", 16)
+    except:
+        font_title = font_text = ImageFont.load_default()
+
+    # ====== BOX ======
     box_w = int(width * 0.5)
-    box_h = int(height * 0.3)
+    box_h = int(height * 0.35)
 
     x = width - box_w - 20
     y = height - box_h - 20
 
-    draw.rectangle([x, y, x+box_w, y+box_h], fill=(30,30,30,200))
+    draw.rounded_rectangle(
+        [x, y, x+box_w, y+box_h],
+        radius=20,
+        fill=(20, 20, 25, 230)
+    )
 
-    try:
-        font = ImageFont.truetype("arial.ttf", 16)
-    except:
-        font = ImageFont.load_default()
-
+    # ====== TIME ======
     utc = datetime.now(timezone.utc)
-    local = datetime.now()
+    wib = utc + timedelta(hours=7)
 
-    draw.text((x+10, y+10), "Yoski Time", fill=(200,200,255), font=font)
-    draw.text((x+10, y+40), "Server: " + format_time(utc), fill=(255,255,255), font=font)
-    draw.text((x+10, y+70), "Local: " + format_time(local), fill=(255,255,255), font=font)
-    draw.text((x+10, y+100), "Synced Perfectly", fill=(150,255,150), font=font)
+    # ====== HEADER ======
+    draw.text((x+20, y+15), "Yoski Time", fill=(180,180,220), font=font_title)
+
+    # ====== SERVER TIME ======
+    draw.text((x+20, y+55), "SERVER TIME (UTC)", fill=(120,180,255), font=font_text)
+    draw.text((x+20, y+75), format_time(utc), fill=(120,255,255), font=font_text)
+
+    # ====== LOCAL TIME ======
+    draw.text((x+20, y+105), "LOCAL TIME (WIB)", fill=(200,200,200), font=font_text)
+    draw.text((x+20, y+125), format_time(wib), fill=(255,200,100), font=font_text)
+
+    # ====== STATUS ======
+    draw.text((x+20, y+box_h-30), "● LIVE SYNCED", fill=(100,255,120), font=font_text)
 
     result = Image.alpha_composite(img, overlay)
     result.convert("RGB").save(output_path)
