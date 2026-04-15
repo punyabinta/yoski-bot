@@ -1,4 +1,5 @@
 import os
+import imghdr2 as imghdr
 from telegram.ext import Updater, MessageHandler, Filters
 from PIL import Image, ImageDraw, ImageFont
 from datetime import datetime, timezone
