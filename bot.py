@@ -104,15 +104,15 @@ def add_watermark(input_path: str, output_path: str) -> None:
 
     # Sync Now
     draw.rounded_rectangle([btn_x, y + 55, btn_x + btn_w, y + 55 + btn_h], radius=8, fill=btn_blue)
-    draw.text((btn_x + 14, y + 61), "⏱ Sync Now", fill=text_white, font=font_status)
+    draw.text((btn_x + 14, y + 61), "Sync Now", fill=text_white, font=font_status)
 
     # Auto Sync
-    draw.rounded_rectangle([btn_x, y + 93, btn_x + btn_w, y + 93 + btn_h], radius=8, fill=btn_cyan_dark)
-    draw.text((btn_x + 14, y + 99), "↻ Auto Sync", fill=text_white, font=font_status)
+    draw.rounded_rectangle([btn_x, y + 93, btn_x + btn_w, y + 93 + btn_h], radius=8, fill=btn_blue_dark)
+    draw.text((btn_x + 14, y + 99), "Auto Sync", fill=text_white, font=font_status)
 
     # Settings
     draw.rounded_rectangle([btn_x, y + 131, btn_x + btn_w, y + 131 + btn_h], radius=8, fill=btn_gray)
-    draw.text((btn_x + 22, y + 137), "⚙ Settings", fill=text_gray, font=font_status)
+    draw.text((btn_x + 22, y + 137), "Settings", fill=text_gray, font=font_status)
 
     # Footer status
     draw.ellipse([x + 20, y + 174, x + 28, y + 182], fill=accent_green)
