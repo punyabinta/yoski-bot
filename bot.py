@@ -1,11 +1,31 @@
 import os
 import time
+import threading
 import requests
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from PIL import Image, ImageDraw, ImageFont
 from datetime import datetime, timezone, timedelta
 
 TOKEN = os.getenv("BOT_TOKEN")
 URL = f"https://api.telegram.org/bot{TOKEN}"
+
+
+# ── Health check server (wajib untuk Render Web Service) ─────────────────────
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
+
+    def log_message(self, format, *args):
+        pass  # matikan log request HTTP
+
+def run_health_server():
+    port = int(os.getenv("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), HealthHandler)
+    print(f"Health server berjalan di port {port}")
+    server.serve_forever()
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 def format_time(dt):
@@ -36,27 +56,24 @@ def add_watermark(input_path: str, output_path: str) -> None:
     overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
 
-    # ── Font ──────────────────────────────────────────────
     f_appname = get_font("arial.ttf",   13)
     f_label   = get_font("arialbd.ttf", 11)
-    f_time    = get_font("cour.ttf",    17)   # Courier monospace
+    f_time    = get_font("cour.ttf",    17)
     f_btn     = get_font("arial.ttf",   13)
     f_status  = get_font("arial.ttf",   13)
     f_diff    = get_font("cour.ttf",    12)
 
-    # Fallback jika cour.ttf tidak tersedia
-    if not any(os.path.exists(p) for p in ["cour.ttf",
-        "/usr/share/fonts/truetype/msttcorefonts/cour.ttf"]):
+    if not any(os.path.exists(p) for p in [
+        "cour.ttf", "/usr/share/fonts/truetype/msttcorefonts/cour.ttf"
+    ]):
         f_time = get_font("arialbd.ttf", 16)
         f_diff = get_font("arial.ttf",   11)
 
-    # ── Waktu ─────────────────────────────────────────────
     utc   = datetime.now(timezone.utc)
     local = utc + timedelta(hours=7)
     line_utc   = format_time(utc)
     line_local = format_time(local)
 
-    # ── Dimensi widget ────────────────────────────────────
     BOX_W  = max(520, min(860, int(W * 0.70)))
     BOX_H  = 222
     RADIUS = 14
@@ -64,7 +81,6 @@ def add_watermark(input_path: str, output_path: str) -> None:
     bx = max(10, W - BOX_W - 20)
     by = max(10, H - BOX_H - 20)
 
-    # ── Warna ─────────────────────────────────────────────
     C_WIN_BG   = (30,  30,  30,  225)
     C_TITLE_BG = (42,  42,  42,  230)
     C_TIME_BG  = (17,  17,  17,  240)
@@ -73,38 +89,26 @@ def add_watermark(input_path: str, output_path: str) -> None:
     C_BTN_SET  = (39,  39,  39,  255)
     C_FOOTER   = (26,  26,  26,  230)
     C_DIVIDER  = (50,  50,  50,  200)
+    C_GRAY     = (136, 136, 136, 255)
+    C_WHITE    = (255, 255, 255, 255)
+    C_TEAL     = (46,  207, 192, 255)
+    C_YELLOW   = (232, 184,  75, 255)
+    C_GREEN    = (40,  200,  64, 255)
+    C_SILVER   = (200, 200, 200, 255)
 
-    C_GRAY   = (136, 136, 136, 255)
-    C_WHITE  = (255, 255, 255, 255)
-    C_TEAL   = (46,  207, 192, 255)
-    C_YELLOW = (232, 184,  75, 255)
-    C_GREEN  = (40,  200,  64, 255)
-    C_SILVER = (200, 200, 200, 255)
-
-    # ═══════════════════════════════════════
-    # 1. WINDOW BACKGROUND
-    # ═══════════════════════════════════════
     draw.rounded_rectangle([bx, by, bx+BOX_W, by+BOX_H], radius=RADIUS, fill=C_WIN_BG)
 
-    # ═══════════════════════════════════════
-    # 2. TITLEBAR
-    # ═══════════════════════════════════════
     TITLE_H = 38
     draw.rounded_rectangle([bx, by, bx+BOX_W, by+TITLE_H+RADIUS], radius=RADIUS, fill=C_TITLE_BG)
     draw.rectangle([bx, by+TITLE_H, bx+BOX_W, by+TITLE_H+1], fill=C_DIVIDER)
 
-    # Traffic light dots
-    for i, col in enumerate([(255,95,86,255), (255,189,46,255), (40,200,64,255)]):
+    for i, col in enumerate([(255,95,86,255),(255,189,46,255),(40,200,64,255)]):
         cx = bx + 18 + i * 22
         draw.ellipse([cx, by+13, cx+13, by+26], fill=col)
 
-    # Nama aplikasi (tengah)
     tw = draw.textbbox((0,0), "Bob's Time", font=f_appname)[2]
     draw.text((bx + (BOX_W-tw)//2, by+12), "Bob's Time", fill=C_GRAY, font=f_appname)
 
-    # ═══════════════════════════════════════
-    # 3. BODY
-    # ═══════════════════════════════════════
     BODY_Y  = by + TITLE_H + 14
     BTN_W   = 132
     PANEL_X = bx + 20
@@ -113,62 +117,42 @@ def add_watermark(input_path: str, output_path: str) -> None:
     B_H     = 34
     B_GAP   = 10
 
-    # Label UTC
     draw.text((PANEL_X, BODY_Y), "SERVER TIME (UTC)", fill=C_GRAY, font=f_label)
-
-    # Kotak UTC
     U_Y = BODY_Y + 17
     draw.rounded_rectangle([PANEL_X, U_Y, PANEL_X+PANEL_W, U_Y+43], radius=9, fill=C_TIME_BG)
     draw.text((PANEL_X+14, U_Y+11), line_utc, fill=C_TEAL, font=f_time)
 
-    # Label Local
     L_LBL_Y = U_Y + 43 + 12
     draw.text((PANEL_X, L_LBL_Y), "LOCAL PC TIME", fill=C_GRAY, font=f_label)
-
-    # Kotak Local
     L_Y = L_LBL_Y + 17
     draw.rounded_rectangle([PANEL_X, L_Y, PANEL_X+PANEL_W, L_Y+43], radius=9, fill=C_TIME_BG)
     draw.text((PANEL_X+14, L_Y+11), line_local, fill=C_YELLOW, font=f_time)
 
-    # Tombol Sync Now
     B1Y = BODY_Y + 4
     draw.rounded_rectangle([BTN_X, B1Y, BTN_X+BTN_W, B1Y+B_H], radius=9, fill=C_BTN_SYNC)
     draw.text((BTN_X+24, B1Y+9), "Sync Now", fill=C_WHITE, font=f_btn)
 
-    # Tombol Auto Sync
     B2Y = B1Y + B_H + B_GAP
     draw.rounded_rectangle([BTN_X, B2Y, BTN_X+BTN_W, B2Y+B_H], radius=9, fill=C_BTN_AUTO)
     draw.text((BTN_X+20, B2Y+9), "Auto Sync", fill=C_SILVER, font=f_btn)
 
-    # Tombol Settings
     B3Y = B2Y + B_H + B_GAP
     draw.rounded_rectangle([BTN_X, B3Y, BTN_X+BTN_W, B3Y+B_H], radius=9, fill=C_BTN_SET)
     draw.text((BTN_X+22, B3Y+9), "Settings", fill=C_GRAY, font=f_btn)
 
-    # ═══════════════════════════════════════
-    # 4. FOOTER
-    # ═══════════════════════════════════════
     FOOT_Y = by + BOX_H - 36
     draw.rectangle([bx, FOOT_Y, bx+BOX_W, by+BOX_H], fill=C_FOOTER)
     draw.rectangle([bx, FOOT_Y, bx+BOX_W, FOOT_Y+1], fill=C_DIVIDER)
-
-    # Dot hijau + teks
     draw.ellipse([bx+20, FOOT_Y+13, bx+30, FOOT_Y+23], fill=C_GREEN)
     draw.text((bx+38, FOOT_Y+10), "Synced Perfectly", fill=C_GREEN, font=f_status)
 
-    # Diff kanan
     diff = "diff: 0.0s via NIST"
     dw = draw.textbbox((0,0), diff, font=f_diff)[2]
     draw.text((bx+BOX_W-dw-18, FOOT_Y+11), diff, fill=C_GRAY, font=f_diff)
 
-    # ═══════════════════════════════════════
-    # 5. RENDER FINAL
-    # ═══════════════════════════════════════
     result = Image.alpha_composite(img, overlay)
     result.convert("RGB").save(output_path, quality=95)
 
-
-# ── Bot ──────────────────────────────────────────────────
 
 def send_message(chat_id: int, text: str) -> None:
     requests.post(f"{URL}/sendMessage", data={"chat_id": chat_id, "text": text})
@@ -215,10 +199,14 @@ def get_updates(offset=None):
 
 def main():
     if not TOKEN:
-        print("ERROR: BOT_TOKEN belum di-set. Jalankan: export BOT_TOKEN=xxx")
+        print("ERROR: BOT_TOKEN belum di-set.")
         return
 
-    print("Bot berjalan... Kirim foto ke bot untuk ditambahkan watermark.")
+    # Jalankan health server di thread terpisah
+    t = threading.Thread(target=run_health_server, daemon=True)
+    t.start()
+
+    print("Bot berjalan...")
     offset = None
 
     while True:
