@@ -223,8 +223,8 @@ def get_updates(offset=None):
 
 KEYBOARD_UKURAN = {
     "inline_keyboard": [[
-        {"text": "⚖️ Sedang", "callback_data": "size_medium"},
-        {"text": "🔍 Besar",  "callback_data": "size_large"},
+        {"text": "Sedang", "callback_data": "size_medium"},
+        {"text": "Besar",  "callback_data": "size_large"},
     ]]
 }
 
@@ -233,14 +233,14 @@ def proses_foto(chat_id: int, file_id: str, size: str) -> None:
     if download_file(file_id, "input.jpg"):
         try:
             add_watermark("input.jpg", "output.jpg", size=size)
-            label = "Sedang ⚖️" if size == "medium" else "Besar 🔍"
+            label = "Sedang" if size == "medium" else "Besar"
             kirim_foto(chat_id, "output.jpg",
-                       caption=f"✅ Watermark ({label}) berhasil ditambahkan.")
+                       caption=f"Watermark ({label}) berhasil ditambahkan.")
         except Exception as e:
             print(f"[watermark] Error: {e}")
-            kirim_pesan(chat_id, "❌ Gagal memproses gambar.")
+            kirim_pesan(chat_id, "Gagal memproses gambar.")
     else:
-        kirim_pesan(chat_id, "❌ Gagal mengunduh foto.")
+        kirim_pesan(chat_id, "Gagal mengunduh foto.")
 
 
 def main():
@@ -260,7 +260,6 @@ def main():
         for update in data.get("result", []):
             offset = update["update_id"] + 1
 
-            # ── Callback dari tombol inline ───────────────────────────────────
             if "callback_query" in update:
                 cb      = update["callback_query"]
                 cb_id   = cb["id"]
@@ -272,18 +271,16 @@ def main():
                 if cb_data in ("size_medium", "size_large"):
                     size = "medium" if cb_data == "size_medium" else "large"
                     user_size_pref[chat_id] = size
-                    label = "Sedang ⚖️" if size == "medium" else "Besar 🔍"
+                    label = "Sedang" if size == "medium" else "Besar"
 
                     if chat_id in pending_photos:
                         file_id = pending_photos.pop(chat_id)
-                        kirim_pesan(chat_id, f"Ukuran dipilih: {label}\nSedang memproses foto...")
+                        kirim_pesan(chat_id, f"Ukuran dipilih: {label}. Sedang memproses foto...")
                         proses_foto(chat_id, file_id, size)
                     else:
-                        kirim_pesan(chat_id,
-                            f"✅ Ukuran watermark diset ke: {label}\nSekarang kirim foto kamu!")
+                        kirim_pesan(chat_id, f"Ukuran watermark diset ke: {label}. Sekarang kirim foto kamu!")
                 continue
 
-            # ── Pesan biasa ───────────────────────────────────────────────────
             msg     = update.get("message", {})
             chat_id = msg.get("chat", {}).get("id")
             if not chat_id:
@@ -293,16 +290,16 @@ def main():
 
             if text in ("/start", "/help"):
                 kirim_pesan(chat_id,
-                    "Halo! 👋 Saya akan menambahkan watermark Bob's Time ke foto kamu.\n\n"
+                    "Halo! Saya akan menambahkan watermark Bob's Time ke foto kamu.\n\n"
                     "Caranya:\n"
-                    "1️⃣ Ketik /ukuran untuk pilih ukuran watermark\n"
-                    "2️⃣ Kirim foto kamu\n\n"
-                    "Atau langsung kirim foto — nanti saya tanya ukurannya.")
+                    "1. Ketik /ukuran untuk pilih ukuran watermark\n"
+                    "2. Kirim foto kamu\n\n"
+                    "Atau langsung kirim foto, nanti saya tanya ukurannya.")
                 continue
 
             if text == "/ukuran":
                 current = user_size_pref.get(chat_id, "medium")
-                label   = "Sedang ⚖️" if current == "medium" else "Besar 🔍"
+                label   = "Sedang" if current == "medium" else "Besar"
                 kirim_pesan(chat_id,
                     f"Pilih ukuran watermark (saat ini: {label}):",
                     keyboard=KEYBOARD_UKURAN)
@@ -316,7 +313,7 @@ def main():
                 else:
                     pending_photos[chat_id] = file_id
                     kirim_pesan(chat_id,
-                        "Pilih ukuran watermark dulu ya:",
+                        "Pilih ukuran watermark dulu:",
                         keyboard=KEYBOARD_UKURAN)
                 continue
 
