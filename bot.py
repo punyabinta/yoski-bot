@@ -1,18 +1,16 @@
 import os
 import time
+import json
 import threading
 import requests
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from PIL import Image, ImageDraw, ImageFont
 from datetime import datetime, timezone, timedelta
-import json
 
 TOKEN = os.getenv("BOT_TOKEN")
 URL = f"[api.telegram.org](https://api.telegram.org/bot{TOKEN})"
 
-# Simpan preferensi ukuran per user: "medium" atau "large"
 user_size_pref = {}
-# Simpan foto yang menunggu konfirmasi ukuran: chat_id -> file_id
 pending_photos = {}
 
 
@@ -57,14 +55,11 @@ def add_watermark(input_path: str, output_path: str, size: str = "medium") -> No
     img = Image.open(input_path).convert("RGBA")
     W, H = img.size
 
-    # ── Scale factor berdasarkan pilihan ukuran ──────────────────────────────
-    # "medium" = 1.0 (ukuran asli), "large" = 1.5x
     SCALE = 1.0 if size == "medium" else 1.5
 
     overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
 
-    # Semua ukuran font dikalikan SCALE
     f_appname = get_font("arial.ttf",   int(13 * SCALE))
     f_label   = get_font("arialbd.ttf", int(11 * SCALE))
     f_time    = get_font("cour.ttf",    int(17 * SCALE))
@@ -83,12 +78,10 @@ def add_watermark(input_path: str, output_path: str, size: str = "medium") -> No
     line_utc   = format_time(utc)
     line_local = format_time(local)
 
-    # Dimensi box juga dikalikan SCALE
     BOX_W  = int(max(520, min(860, int(W * 0.70))) * SCALE)
     BOX_H  = int(222 * SCALE)
     RADIUS = int(14 * SCALE)
 
-    # Clamp agar tidak melebihi batas gambar
     BOX_W = min(BOX_W, W - 30)
     BOX_H = min(BOX_H, H - 30)
 
@@ -136,55 +129,55 @@ def add_watermark(input_path: str, output_path: str, size: str = "medium") -> No
     draw.text((PANEL_X, BODY_Y), "SERVER TIME (UTC)", fill=C_GRAY, font=f_label)
     U_Y = BODY_Y + int(17 * SCALE)
     draw.rounded_rectangle([PANEL_X, U_Y, PANEL_X+PANEL_W, U_Y+int(43*SCALE)], radius=int(9*SCALE), fill=C_TIME_BG)
-    draw.text((PANEL_X + int(14*SCALE), U_Y + int(11*SCALE)), line_utc, fill=C_TEAL, font=f_time)
+    draw.text((PANEL_X+int(14*SCALE), U_Y+int(11*SCALE)), line_utc, fill=C_TEAL, font=f_time)
 
-    L_LBL_Y = U_Y + int(43 * SCALE) + int(12 * SCALE)
+    L_LBL_Y = U_Y + int(43*SCALE) + int(12*SCALE)
     draw.text((PANEL_X, L_LBL_Y), "LOCAL PC TIME", fill=C_GRAY, font=f_label)
     L_Y = L_LBL_Y + int(17 * SCALE)
     draw.rounded_rectangle([PANEL_X, L_Y, PANEL_X+PANEL_W, L_Y+int(43*SCALE)], radius=int(9*SCALE), fill=C_TIME_BG)
-    draw.text((PANEL_X + int(14*SCALE), L_Y + int(11*SCALE)), line_local, fill=C_YELLOW, font=f_time)
+    draw.text((PANEL_X+int(14*SCALE), L_Y+int(11*SCALE)), line_local, fill=C_YELLOW, font=f_time)
 
     B1Y = BODY_Y + int(4 * SCALE)
     draw.rounded_rectangle([BTN_X, B1Y, BTN_X+BTN_W, B1Y+B_H], radius=int(9*SCALE), fill=C_BTN_SYNC)
-    draw.text((BTN_X + int(24*SCALE), B1Y + int(9*SCALE)), "Sync Now", fill=C_WHITE, font=f_btn)
+    draw.text((BTN_X+int(24*SCALE), B1Y+int(9*SCALE)), "Sync Now", fill=C_WHITE, font=f_btn)
 
     B2Y = B1Y + B_H + B_GAP
     draw.rounded_rectangle([BTN_X, B2Y, BTN_X+BTN_W, B2Y+B_H], radius=int(9*SCALE), fill=C_BTN_AUTO)
-    draw.text((BTN_X + int(20*SCALE), B2Y + int(9*SCALE)), "Auto Sync", fill=C_SILVER, font=f_btn)
+    draw.text((BTN_X+int(20*SCALE), B2Y+int(9*SCALE)), "Auto Sync", fill=C_SILVER, font=f_btn)
 
     B3Y = B2Y + B_H + B_GAP
     draw.rounded_rectangle([BTN_X, B3Y, BTN_X+BTN_W, B3Y+B_H], radius=int(9*SCALE), fill=C_BTN_SET)
-    draw.text((BTN_X + int(22*SCALE), B3Y + int(9*SCALE)), "Settings", fill=C_GRAY, font=f_btn)
+    draw.text((BTN_X+int(22*SCALE), B3Y+int(9*SCALE)), "Settings", fill=C_GRAY, font=f_btn)
 
     FOOT_Y = by + BOX_H - int(36 * SCALE)
     draw.rectangle([bx, FOOT_Y, bx+BOX_W, by+BOX_H], fill=C_FOOTER)
     draw.rectangle([bx, FOOT_Y, bx+BOX_W, FOOT_Y+1], fill=C_DIVIDER)
     dot_s = int(10 * SCALE)
-    draw.ellipse([bx + int(20*SCALE), FOOT_Y + int(13*SCALE),
-                  bx + int(20*SCALE) + dot_s, FOOT_Y + int(13*SCALE) + dot_s], fill=C_GREEN)
-    draw.text((bx + int(38*SCALE), FOOT_Y + int(10*SCALE)), "Synced Perfectly", fill=C_GREEN, font=f_status)
+    draw.ellipse([bx+int(20*SCALE), FOOT_Y+int(13*SCALE),
+                  bx+int(20*SCALE)+dot_s, FOOT_Y+int(13*SCALE)+dot_s], fill=C_GREEN)
+    draw.text((bx+int(38*SCALE), FOOT_Y+int(10*SCALE)), "Synced Perfectly", fill=C_GREEN, font=f_status)
 
     diff = "diff: 0.0s via NIST"
     dw = draw.textbbox((0,0), diff, font=f_diff)[2]
-    draw.text((bx + BOX_W - dw - int(18*SCALE), FOOT_Y + int(11*SCALE)), diff, fill=C_GRAY, font=f_diff)
+    draw.text((bx+BOX_W-dw-int(18*SCALE), FOOT_Y+int(11*SCALE)), diff, fill=C_GRAY, font=f_diff)
 
     result = Image.alpha_composite(img, overlay)
     result.convert("RGB").save(output_path, quality=95)
 
 
-def send_message(chat_id: int, text: str) -> None:
-    requests.post(f"{URL}/sendMessage", data={"chat_id": chat_id, "text": text})
-
-
-def send_message_with_keyboard(chat_id: int, text: str, keyboard: dict) -> None:
-    requests.post(f"{URL}/sendMessage", data={
+def kirim_pesan(chat_id: int, text: str, keyboard: dict = None) -> None:
+    payload = {
         "chat_id": chat_id,
         "text": text,
-        "reply_markup": json.dumps(keyboard)
-    })
+    }
+    if keyboard:
+        payload["reply_markup"] = json.dumps(keyboard)
+    res = requests.post(f"{URL}/sendMessage", data=payload)
+    if not res.json().get("ok"):
+        print(f"[kirim_pesan] Error: {res.json()}")
 
 
-def send_photo(chat_id: int, photo_path: str, caption: str = "") -> None:
+def kirim_foto(chat_id: int, photo_path: str, caption: str = "") -> None:
     with open(photo_path, "rb") as f:
         requests.post(
             f"{URL}/sendPhoto",
@@ -193,8 +186,9 @@ def send_photo(chat_id: int, photo_path: str, caption: str = "") -> None:
         )
 
 
-def answer_callback_query(callback_query_id: str) -> None:
-    requests.post(f"{URL}/answerCallbackQuery", data={"callback_query_id": callback_query_id})
+def jawab_callback(callback_query_id: str) -> None:
+    requests.post(f"{URL}/answerCallbackQuery",
+                  data={"callback_query_id": callback_query_id})
 
 
 def download_file(file_id: str, path: str) -> bool:
@@ -227,18 +221,26 @@ def get_updates(offset=None):
         return {"result": []}
 
 
-def process_photo(chat_id: int, file_id: str, size: str) -> None:
-    """Download, watermark, dan kirim foto."""
+KEYBOARD_UKURAN = {
+    "inline_keyboard": [[
+        {"text": "⚖️ Sedang", "callback_data": "size_medium"},
+        {"text": "🔍 Besar",  "callback_data": "size_large"},
+    ]]
+}
+
+
+def proses_foto(chat_id: int, file_id: str, size: str) -> None:
     if download_file(file_id, "input.jpg"):
         try:
             add_watermark("input.jpg", "output.jpg", size=size)
-            label = "Sedang" if size == "medium" else "Besar"
-            send_photo(chat_id, "output.jpg", caption=f"✅ Watermark ({label}) berhasil ditambahkan.")
+            label = "Sedang ⚖️" if size == "medium" else "Besar 🔍"
+            kirim_foto(chat_id, "output.jpg",
+                       caption=f"✅ Watermark ({label}) berhasil ditambahkan.")
         except Exception as e:
             print(f"[watermark] Error: {e}")
-            send_message(chat_id, "Gagal memproses gambar.")
+            kirim_pesan(chat_id, "❌ Gagal memproses gambar.")
     else:
-        send_message(chat_id, "Gagal mengunduh foto.")
+        kirim_pesan(chat_id, "❌ Gagal mengunduh foto.")
 
 
 def main():
@@ -258,32 +260,31 @@ def main():
         for update in data.get("result", []):
             offset = update["update_id"] + 1
 
-            # ── Handle callback dari inline keyboard ─────────────────────────
+            # ── Callback dari tombol inline ───────────────────────────────────
             if "callback_query" in update:
-                cb = update["callback_query"]
+                cb      = update["callback_query"]
                 cb_id   = cb["id"]
                 cb_data = cb["data"]
                 chat_id = cb["message"]["chat"]["id"]
 
-                answer_callback_query(cb_id)
+                jawab_callback(cb_id)
 
                 if cb_data in ("size_medium", "size_large"):
                     size = "medium" if cb_data == "size_medium" else "large"
                     user_size_pref[chat_id] = size
+                    label = "Sedang ⚖️" if size == "medium" else "Besar 🔍"
 
-                    # Proses foto yang sedang menunggu (jika ada)
                     if chat_id in pending_photos:
                         file_id = pending_photos.pop(chat_id)
-                        label = "Sedang ⚖️" if size == "medium" else "Besar 🔍"
-                        send_message(chat_id, f"Ukuran dipilih: {label}. Memproses foto...")
-                        process_photo(chat_id, file_id, size)
+                        kirim_pesan(chat_id, f"Ukuran dipilih: {label}\nSedang memproses foto...")
+                        proses_foto(chat_id, file_id, size)
                     else:
-                        label = "Sedang ⚖️" if size == "medium" else "Besar 🔍"
-                        send_message(chat_id, f"Ukuran watermark diset ke: {label}. Kirim foto untuk diproses.")
+                        kirim_pesan(chat_id,
+                            f"✅ Ukuran watermark diset ke: {label}\nSekarang kirim foto kamu!")
                 continue
 
-            # ── Handle pesan biasa ───────────────────────────────────────────
-            msg = update.get("message", {})
+            # ── Pesan biasa ───────────────────────────────────────────────────
+            msg     = update.get("message", {})
             chat_id = msg.get("chat", {}).get("id")
             if not chat_id:
                 continue
@@ -291,53 +292,38 @@ def main():
             text = msg.get("text", "")
 
             if text in ("/start", "/help"):
-                send_message(chat_id,
-                    "Halo! Kirimkan foto dan saya akan menambahkan watermark Bob's Time (UTC & WIB).\n\n"
-                    "Gunakan /ukuran untuk mengatur ukuran watermark terlebih dahulu, "
-                    "atau langsung kirim foto — bot akan menanyakan ukurannya.")
+                kirim_pesan(chat_id,
+                    "Halo! 👋 Saya akan menambahkan watermark Bob's Time ke foto kamu.\n\n"
+                    "Caranya:\n"
+                    "1️⃣ Ketik /ukuran untuk pilih ukuran watermark\n"
+                    "2️⃣ Kirim foto kamu\n\n"
+                    "Atau langsung kirim foto — nanti saya tanya ukurannya.")
                 continue
 
             if text == "/ukuran":
-                keyboard = {
-                    "inline_keyboard": [[
-                        {"text": "⚖️ Sedang", "callback_data": "size_medium"},
-                        {"text": "🔍 Besar",  "callback_data": "size_large"},
-                    ]]
-                }
                 current = user_size_pref.get(chat_id, "medium")
-                label = "Sedang ⚖️" if current == "medium" else "Besar 🔍"
-                send_message_with_keyboard(
-                    chat_id,
+                label   = "Sedang ⚖️" if current == "medium" else "Besar 🔍"
+                kirim_pesan(chat_id,
                     f"Pilih ukuran watermark (saat ini: {label}):",
-                    keyboard
-                )
+                    keyboard=KEYBOARD_UKURAN)
                 continue
 
             if "photo" in msg:
                 file_id = msg["photo"][-1]["file_id"]
 
-                # Jika user sudah punya preferensi, langsung proses
                 if chat_id in user_size_pref:
-                    size = user_size_pref[chat_id]
-                    process_photo(chat_id, file_id, size)
+                    proses_foto(chat_id, file_id, user_size_pref[chat_id])
                 else:
-                    # Simpan foto, tanya ukuran dulu
                     pending_photos[chat_id] = file_id
-                    keyboard = {
-                        "inline_keyboard": [[
-                            {"text": "⚖️ Sedang", "callback_data": "size_medium"},
-                            {"text": "🔍 Besar",  "callback_data": "size_large"},
-                        ]]
-                    }
-                    send_message_with_keyboard(
-                        chat_id,
-                        "Pilih ukuran watermark:",
-                        keyboard
-                    )
+                    kirim_pesan(chat_id,
+                        "Pilih ukuran watermark dulu ya:",
+                        keyboard=KEYBOARD_UKURAN)
                 continue
 
             if msg:
-                send_message(chat_id, "Kirim foto untuk mendapatkan watermark waktu.\nGunakan /ukuran untuk mengatur ukuran.")
+                kirim_pesan(chat_id,
+                    "Kirim foto untuk mendapatkan watermark.\n"
+                    "Gunakan /ukuran untuk pilih ukuran.")
 
         time.sleep(1)
 
