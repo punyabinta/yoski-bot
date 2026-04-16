@@ -8,14 +8,14 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from PIL import Image, ImageDraw, ImageFont
 from datetime import datetime, timezone, timedelta
 
-
 TOKEN = os.getenv("BOT_TOKEN")
 URL = f"https://api.telegram.org/bot{TOKEN}"
 
+# Simpan preferensi ukuran per chat
 USER_SIZE_MODE = {}
 
 
-# ───────────────── HEALTH SERVER (Render wajib) ─────────────────
+# ── Health check server (wajib untuk Render Web Service) ─────────────────────
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -31,53 +31,55 @@ def run_health_server():
     server = HTTPServer(("0.0.0.0", port), HealthHandler)
     print(f"Health server berjalan di port {port}")
     server.serve_forever()
+# ─────────────────────────────────────────────────────────────────────────────
 
 
-# ───────────────── FORMAT TIME ─────────────────
 def format_time(dt):
     return dt.strftime("%A | %B %d, %Y at %H:%M:%S")
 
 
-# ───────────────── FONT LOADER ─────────────────
-def get_font(path, size):
-    mono = "cour" in path.lower()
+def get_font(path: str, size: int):
+    is_bold = "bd" in path.lower() or "bold" in path.lower()
+    is_mono = "cour" in path.lower() or "mono" in path.lower()
 
     candidates = [path]
 
-    if mono:
+    if is_mono:
         candidates += [
             "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
             "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+            "/usr/share/fonts/truetype/msttcorefonts/cour.ttf",
+            "/usr/share/fonts/truetype/freefont/FreeMono.ttf",
         ]
     else:
         candidates += [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            f"/usr/share/fonts/truetype/msttcorefonts/{path}",
+            f"/usr/share/fonts/truetype/liberation/{path.replace('arial', 'LiberationSans').replace('arialbd', 'LiberationSans-Bold')}",
+            f"/usr/share/fonts/truetype/dejavu/DejaVuSans{'-Bold' if is_bold else ''}.ttf",
+            "/System/Library/Fonts/Helvetica.ttc",
         ]
 
     for p in candidates:
         if os.path.exists(p):
             try:
                 return ImageFont.truetype(p, size)
-            except:
+            except Exception:
                 pass
 
     return ImageFont.load_default()
 
-
 def safe_text(draw, xy, text, fill, font):
     try:
         draw.text(xy, text, fill=fill, font=font)
-    except:
-        draw.text(xy, text.encode("ascii", "ignore").decode(), fill=fill, font=font)
+    except Exception:
+        # fallback sederhana kalau ada karakter/font issue
+        draw.text(xy, str(text).encode("ascii", "ignore").decode(), fill=fill, font=font)
 
 
-# ───────────────── WATERMARK ENGINE ─────────────────
-def add_watermark(input_path, output_path, size_mode="medium"):
-
+def add_watermark(input_path: str, output_path: str, size_mode: str = "medium") -> None:
     img = Image.open(input_path).convert("RGBA")
     W, H = img.size
-    portrait = H > W
+    is_portrait = H > W
 
     overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
@@ -85,324 +87,388 @@ def add_watermark(input_path, output_path, size_mode="medium"):
     utc = datetime.now(timezone.utc)
     local = utc + timedelta(hours=7)
 
-    utc_text = format_time(utc)
-    local_text = format_time(local)
+    line_utc = format_time(utc)
+    line_local = format_time(local)
 
-    # ───── SIZE CONTROL ─────
+    # ── AUTO RESIZE BERDASARKAN PORTRAIT / LANDSCAPE ──────────────────────
+    # small: lebar lebih kecil, tinggi tetap
     if size_mode == "small":
-
-        if portrait:
-            ratio = 0.43
+        if is_portrait:
+            box_ratio = 0.44
+            min_box_w = 300
+            max_box_w = 470
+            base_box_h = 222
         else:
-            ratio = 0.35
-
-        BOX_H = 130  # 🔥 dipendekkan agar space kosong hilang
-
-    else:  # MEDIUM
-
-        if portrait:
-            ratio = 0.68
+            box_ratio = 0.36
+            min_box_w = 300
+            max_box_w = 500
+            base_box_h = 222
+    else:  # medium
+        if is_portrait:
+            box_ratio = 0.72
+            min_box_w = 480
+            max_box_w = 760
+            base_box_h = 222
         else:
-            ratio = 0.54
+            box_ratio = 0.58
+            min_box_w = 520
+            max_box_w = 860
+            base_box_h = 222
 
-        BOX_H = 205
+    BOX_W = max(min_box_w, min(max_box_w, int(W * box_ratio)))
+    BOX_H = base_box_h
 
-    BOX_W = int(W * ratio)
+    # scaling ringan agar elemen ikut proporsional ke box
+    scale = BOX_W / 620.0
 
-    scale = BOX_W / 620
-
-    def s(x):
-        return max(1, int(x * scale))
-
-    bx = W - BOX_W - s(18)
-    by = H - BOX_H - s(18)
+    def s(v):
+        return max(1, int(v * scale))
 
     RADIUS = s(14)
 
-    # ───── COLORS ─────
-    C_BG = (30, 30, 30, 238)
-    C_TITLE = (42, 42, 42, 242)
-    C_BODY = (0, 0, 0, 255)
-    C_FOOTER = (0, 0, 0, 255)
+    # Posisi: tetap di kanan bawah, tapi aman untuk gambar kecil
+    bx = max(10, W - BOX_W - s(20))
+    by = max(10, H - BOX_H - s(20))
 
-    C_SYNC = (26, 111, 212, 255)
-    C_AUTO = (46, 46, 46, 255)
-    C_SET = (39, 39, 39, 255)
+    # ── WARNA ──────────────────────────────────────────────────────────────
+    C_WIN_BG   = (30, 30, 30, 235)
+    C_TITLE_BG = (42, 42, 42, 240)
 
-    C_GRAY = (136, 136, 136, 255)
-    C_WHITE = (255, 255, 255, 255)
-    C_TEAL = (46, 207, 192, 255)
-    C_YELLOW = (232, 184, 75, 255)
-    C_GREEN = (40, 200, 64, 255)
+    # main body full hitam
+    C_TIME_BG  = (0, 0, 0, 255)
 
-    # ───── FONT ─────
-    f_title = get_font("arial.ttf", s(13))
-    f_label = get_font("arialbd.ttf", s(11))
+    C_BTN_SYNC = (26, 111, 212, 255)
+    C_BTN_AUTO = (46, 46, 46, 255)
+    C_BTN_SET  = (39, 39, 39, 255)
 
-    f_time = get_font("cour.ttf", s(17 if size_mode == "medium" else 12))
+    # footer full hitam
+    C_FOOTER   = (0, 0, 0, 255)
 
-    f_btn = get_font("arial.ttf", s(13 if size_mode == "medium" else 10))
-    f_status = get_font("arial.ttf", s(13 if size_mode == "medium" else 10))
-    f_diff = get_font("cour.ttf", s(12 if size_mode == "medium" else 10))
+    C_DIVIDER  = (50, 50, 50, 220)
+    C_GRAY     = (136, 136, 136, 255)
+    C_WHITE    = (255, 255, 255, 255)
+    C_TEAL     = (46, 207, 192, 255)
+    C_YELLOW   = (232, 184, 75, 255)
+    C_GREEN    = (40, 200, 64, 255)
+    C_SILVER   = (200, 200, 200, 255)
 
-    # ───── MAIN WINDOW ─────
+    # ── FONT ───────────────────────────────────────────────────────────────
+    f_appname = get_font("arial.ttf", s(13))
+    f_label   = get_font("arialbd.ttf", s(11))
+
+    # body/waktu pakai monospace
+    f_time    = get_font("cour.ttf", s(17))
+    f_btn     = get_font("arial.ttf", s(13))
+    f_status  = get_font("arial.ttf", s(13))
+    f_diff    = get_font("cour.ttf", s(12))
+
+    # fallback kalau cour tidak ada
+    if getattr(f_time, "getname", lambda: ("", ""))()[0] == "Default":
+        f_time = get_font("mono.ttf", s(17))
+        f_diff = get_font("mono.ttf", s(12))
+
+    # ── BACKGROUND UTAMA ───────────────────────────────────────────────────
     draw.rounded_rectangle(
         [bx, by, bx + BOX_W, by + BOX_H],
         radius=RADIUS,
-        fill=C_BG
+        fill=C_WIN_BG
     )
 
-    TITLE_H = s(36 if size_mode == "medium" else 30)
-
+    # Header
+    TITLE_H = s(38)
     draw.rounded_rectangle(
         [bx, by, bx + BOX_W, by + TITLE_H + RADIUS],
         radius=RADIUS,
-        fill=C_TITLE
+        fill=C_TITLE_BG
     )
+    draw.rectangle([bx, by + TITLE_H, bx + BOX_W, by + TITLE_H + 1], fill=C_DIVIDER)
+
+    # Tombol window kiri atas
+    for i, col in enumerate([
+        (255, 95, 86, 255),
+        (255, 189, 46, 255),
+        (40, 200, 64, 255)
+    ]):
+        cx = bx + s(18) + i * s(22)
+        draw.ellipse([cx, by + s(13), cx + s(13), by + s(26)], fill=col)
 
     title = "Bob's Time"
+    title_bbox = draw.textbbox((0, 0), title, font=f_appname)
+    tw = title_bbox[2] - title_bbox[0]
+    safe_text(draw, (bx + (BOX_W - tw) // 2, by + s(12)), title, C_GRAY, f_appname)
 
-    tw = draw.textbbox((0, 0), title, font=f_title)[2]
+    # ── LAYOUT BODY ────────────────────────────────────────────────────────
+    BODY_Y = by + TITLE_H + s(14)
+    BTN_W = s(132 if size_mode == "medium" else 110)
+    PANEL_X = bx + s(20)
+    PANEL_W = BOX_W - BTN_W - s(56)
+    BTN_X = bx + BOX_W - BTN_W - s(16)
+    B_H = s(34 if size_mode == "medium" else 28)
+    B_GAP = s(10)
+    TIME_H = s(43 if size_mode == "medium" else 34)
 
-    safe_text(draw, (bx + (BOX_W - tw)//2, by + s(10)), title, C_GRAY, f_title)
-
-    BODY_Y = by + TITLE_H + s(10)
-
-    BTN_W = s(120 if size_mode == "medium" else 95)
-    PANEL_X = bx + s(18)
-    PANEL_W = BOX_W - BTN_W - s(48)
-    BTN_X = bx + BOX_W - BTN_W - s(15)
-
-    if size_mode == "small":
-
-        TIME_H = s(26)
-        GAP = s(7)
-        TEXT_Y = s(7)
-        FOOT_H = s(26)
-
-    else:
-
-        TIME_H = s(36)
-        GAP = s(10)
-        TEXT_Y = s(8)
-        FOOT_H = s(34)
-
-    # ───── UTC PANEL ─────
+    # Panel UTC
     safe_text(draw, (PANEL_X, BODY_Y), "SERVER TIME (UTC)", C_GRAY, f_label)
-
-    UY = BODY_Y + s(14)
-
+    U_Y = BODY_Y + s(17)
     draw.rounded_rectangle(
-        [PANEL_X, UY, PANEL_X + PANEL_W, UY + TIME_H],
-        radius=s(8),
-        fill=C_BODY
+        [PANEL_X, U_Y, PANEL_X + PANEL_W, U_Y + TIME_H],
+        radius=s(9),
+        fill=C_TIME_BG
     )
+    safe_text(draw, (PANEL_X + s(14), U_Y + s(11)), line_utc, C_TEAL, f_time)
 
-    safe_text(draw, (PANEL_X + s(12), UY + TEXT_Y), utc_text, C_TEAL, f_time)
-
-    # ───── LOCAL PANEL ─────
-    LY_LABEL = UY + TIME_H + GAP
-
-    safe_text(draw, (PANEL_X, LY_LABEL), "LOCAL PC TIME", C_GRAY, f_label)
-
-    LY = LY_LABEL + s(14)
-
+    # Panel LOCAL
+    L_LBL_Y = U_Y + TIME_H + s(12)
+    safe_text(draw, (PANEL_X, L_LBL_Y), "LOCAL PC TIME", C_GRAY, f_label)
+    L_Y = L_LBL_Y + s(17)
     draw.rounded_rectangle(
-        [PANEL_X, LY, PANEL_X + PANEL_W, LY + TIME_H],
-        radius=s(8),
-        fill=C_BODY
+        [PANEL_X, L_Y, PANEL_X + PANEL_W, L_Y + TIME_H],
+        radius=s(9),
+        fill=C_TIME_BG
     )
+    safe_text(draw, (PANEL_X + s(14), L_Y + s(11)), line_local, C_YELLOW, f_time)
 
-    safe_text(draw, (PANEL_X + s(12), LY + TEXT_Y), local_text, C_YELLOW, f_time)
-
-    # ───── BUTTONS ─────
-    BY = BODY_Y
-
+    # Tombol kanan
+    B1Y = BODY_Y + s(4)
     draw.rounded_rectangle(
-        [BTN_X, BY, BTN_X + BTN_W, BY + TIME_H],
-        radius=s(8),
-        fill=C_SYNC
+        [BTN_X, B1Y, BTN_X + BTN_W, B1Y + B_H],
+        radius=s(9),
+        fill=C_BTN_SYNC
     )
+    safe_text(draw, (BTN_X + s(18), B1Y + s(9)), "Sync Now", C_WHITE, f_btn)
 
-    safe_text(draw, (BTN_X + s(14), BY + TEXT_Y), "Sync Now", C_WHITE, f_btn)
+    B2Y = B1Y + B_H + B_GAP
+    draw.rounded_rectangle(
+        [BTN_X, B2Y, BTN_X + BTN_W, B2Y + B_H],
+        radius=s(9),
+        fill=C_BTN_AUTO
+    )
+    safe_text(draw, (BTN_X + s(15), B2Y + s(9)), "Auto Sync", C_SILVER, f_btn)
 
-    # ───── FOOTER ─────
+    B3Y = B2Y + B_H + B_GAP
+    draw.rounded_rectangle(
+        [BTN_X, B3Y, BTN_X + BTN_W, B3Y + B_H],
+        radius=s(9),
+        fill=C_BTN_SET
+    )
+    safe_text(draw, (BTN_X + s(18), B3Y + s(9)), "Settings", C_GRAY, f_btn)
+
+    # ── FOOTER FULL HITAM ──────────────────────────────────────────────────
+    FOOT_H = s(36 if size_mode == "medium" else 30)
     FOOT_Y = by + BOX_H - FOOT_H
-
     draw.rectangle([bx, FOOT_Y, bx + BOX_W, by + BOX_H], fill=C_FOOTER)
+    draw.rectangle([bx, FOOT_Y, bx + BOX_W, FOOT_Y + 1], fill=C_DIVIDER)
 
-    draw.ellipse(
-        [bx + s(16), FOOT_Y + s(8), bx + s(26), FOOT_Y + s(18)],
-        fill=C_GREEN
-    )
-
-    safe_text(
-        draw,
-        (bx + s(32), FOOT_Y + s(6)),
-        "Synced Perfectly",
-        C_GREEN,
-        f_status
-    )
+    draw.ellipse([bx + s(20), FOOT_Y + s(10), bx + s(30), FOOT_Y + s(20)], fill=C_GREEN)
+    safe_text(draw, (bx + s(38), FOOT_Y + s(8)), "Synced Perfectly", C_GREEN, f_status)
 
     diff = "diff: 0.0s via NIST"
-
-    dw = draw.textbbox((0, 0), diff, font=f_diff)[2]
-
-    safe_text(
-        draw,
-        (bx + BOX_W - dw - s(14), FOOT_Y + s(6)),
-        diff,
-        C_GRAY,
-        f_diff
-    )
+    diff_bbox = draw.textbbox((0, 0), diff, font=f_diff)
+    dw = diff_bbox[2] - diff_bbox[0]
+    safe_text(draw, (bx + BOX_W - dw - s(18), FOOT_Y + s(9)), diff, C_GRAY, f_diff)
 
     result = Image.alpha_composite(img, overlay)
-
     result.convert("RGB").save(output_path, quality=95)
 
-
-# ───────────────── TELEGRAM FUNCTIONS ─────────────────
-def send_message(chat_id, text):
-
-    requests.post(
-        f"{URL}/sendMessage",
-        data={"chat_id": chat_id, "text": text}
-    )
-
-
-def send_photo(chat_id, photo_path, caption=""):
-
-    with open(photo_path, "rb") as f:
-
+def send_message(chat_id: int, text: str) -> None:
+    try:
         requests.post(
-            f"{URL}/sendPhoto",
-            data={"chat_id": chat_id, "caption": caption},
-            files={"photo": f}
+            f"{URL}/sendMessage",
+            data={"chat_id": chat_id, "text": text},
+            timeout=20
         )
+    except Exception as e:
+        print(f"[send_message] Error: {e}")
 
 
-def download_file(file_id, path):
-
-    file_info = requests.get(
-        f"{URL}/getFile",
-        params={"file_id": file_id}
-    ).json()
-
-    file_path = file_info["result"]["file_path"]
-
-    content = requests.get(
-        f"https://api.telegram.org/file/bot{TOKEN}/{file_path}"
-    ).content
-
-    with open(path, "wb") as f:
-        f.write(content)
-
-    return True
+def send_photo(chat_id: int, photo_path: str, caption: str = "") -> None:
+    try:
+        with open(photo_path, "rb") as f:
+            requests.post(
+                f"{URL}/sendPhoto",
+                data={"chat_id": chat_id, "caption": caption},
+                files={"photo": f},
+                timeout=60
+            )
+    except Exception as e:
+        print(f"[send_photo] Error: {e}")
 
 
-def detect_size_mode_from_text(text, default="medium"):
-
-    if not text:
-        return default
-
-    t = text.lower()
-
-    if "small" in t:
-        return "small"
-
-    if "medium" in t:
-        return "medium"
-
-    return default
-
-
-def cleanup(path):
-
-    if os.path.exists(path):
-        os.remove(path)
-
-
-def handle_photo_message(msg):
-
-    chat_id = msg["chat"]["id"]
-
-    caption = msg.get("caption", "")
-
-    mode = detect_size_mode_from_text(
-        caption,
-        USER_SIZE_MODE.get(chat_id, "medium")
-    )
-
-    file_id = msg["photo"][-1]["file_id"]
-
-    uid = uuid.uuid4().hex
-
-    inp = f"/tmp/in_{uid}.jpg"
-    out = f"/tmp/out_{uid}.jpg"
-
-    send_message(chat_id, f"Processing watermark mode: {mode}...")
-
-    download_file(file_id, inp)
-
-    add_watermark(inp, out, mode)
-
-    send_photo(chat_id, out, f"Watermark {mode} selesai ✅")
-
-    cleanup(inp)
-    cleanup(out)
-
-
-# ───────────────── MAIN LOOP ─────────────────
-def main():
-
-    threading.Thread(
-        target=run_health_server,
-        daemon=True
-    ).start()
-
-    offset = None
-
-    print("Bot running...")
-
-    while True:
-
-        updates = requests.get(
-            f"{URL}/getUpdates",
-            params={"timeout": 30, "offset": offset}
+def download_file(file_id: str, path: str) -> bool:
+    try:
+        file_info = requests.get(
+            f"{URL}/getFile",
+            params={"file_id": file_id},
+            timeout=20
         ).json()
 
-        for u in updates.get("result", []):
+        if not file_info.get("ok"):
+            print(f"[download_file] getFile gagal: {file_info}")
+            return False
 
-            offset = u["update_id"] + 1
+        file_path = file_info["result"]["file_path"]
 
-            msg = u.get("message", {})
+        content = requests.get(
+            f"https://api.telegram.org/file/bot{TOKEN}/{file_path}",
+            timeout=60
+        ).content
 
-            if not msg:
+        with open(path, "wb") as f:
+            f.write(content)
+
+        return True
+    except Exception as e:
+        print(f"[download_file] Error: {e}")
+        return False
+
+
+def get_updates(offset=None):
+    try:
+        res = requests.get(
+            f"{URL}/getUpdates",
+            params={"timeout": 30, "offset": offset},
+            timeout=35,
+        )
+        return res.json()
+    except Exception as e:
+        print(f"[get_updates] Error: {e}")
+        return {"result": []}
+
+
+def detect_size_mode_from_text(text: str, default_mode: str = "medium") -> str:
+    if not text:
+        return default_mode
+
+    t = text.lower().strip()
+
+    if "small" in t or "kecil" in t:
+        return "small"
+    if "medium" in t or "sedang" in t:
+        return "medium"
+
+    return default_mode
+
+
+def cleanup_file(path: str):
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+    except Exception as e:
+        print(f"[cleanup_file] Error: {e}")
+
+
+def handle_photo_message(msg: dict):
+    chat_id = msg.get("chat", {}).get("id")
+    if not chat_id:
+        return
+
+    caption = msg.get("caption", "")
+    default_mode = USER_SIZE_MODE.get(chat_id, "medium")
+    size_mode = detect_size_mode_from_text(caption, default_mode)
+
+    photo_list = msg.get("photo", [])
+    if not photo_list:
+        send_message(chat_id, "Foto tidak ditemukan.")
+        return
+
+    file_id = photo_list[-1]["file_id"]
+
+    unique_id = uuid.uuid4().hex
+    input_path = f"/tmp/input_{chat_id}_{unique_id}.jpg"
+    output_path = f"/tmp/output_{chat_id}_{unique_id}.jpg"
+
+    send_message(chat_id, f"Foto diterima. Memproses watermark mode: {size_mode}...")
+
+    try:
+        if not download_file(file_id, input_path):
+            send_message(chat_id, "Gagal mengunduh foto.")
+            return
+
+        add_watermark(input_path, output_path, size_mode=size_mode)
+        send_photo(chat_id, output_path, caption=f"Watermark {size_mode} berhasil ditambahkan.")
+    except Exception as e:
+        print(f"[handle_photo_message] Error: {e}")
+        send_message(chat_id, "Gagal memproses gambar.")
+    finally:
+        cleanup_file(input_path)
+        cleanup_file(output_path)
+
+
+def main():
+    if not TOKEN:
+        print("ERROR: BOT_TOKEN belum di-set.")
+        return
+
+    # Jalankan health server di thread terpisah
+    t = threading.Thread(target=run_health_server, daemon=True)
+    t.start()
+
+    print("Bot berjalan...")
+    offset = None
+
+    while True:
+        data = get_updates(offset)
+
+        for update in data.get("result", []):
+            offset = update["update_id"] + 1
+            msg = update.get("message", {})
+            chat_id = msg.get("chat", {}).get("id")
+
+            if not chat_id:
                 continue
 
-            chat_id = msg["chat"]["id"]
+            text = msg.get("text", "").strip().lower()
 
-            text = msg.get("text", "").lower()
+            if text == "/start":
+                USER_SIZE_MODE[chat_id] = "medium"
+                send_message(
+                    chat_id,
+                    "Halo! Kirimkan foto dan saya akan menambahkan watermark Bob's Time.\n\n"
+                    "Perintah yang tersedia:\n"
+                    "/small  -> set mode default ke small\n"
+                    "/medium -> set mode default ke medium\n"
+                    "/help   -> bantuan\n\n"
+                    "Anda juga bisa kirim foto dengan caption: small atau medium"
+                )
+                continue
+
+            if text == "/help":
+                send_message(
+                    chat_id,
+                    "Cara penggunaan:\n\n"
+                    "1. Kirim perintah /small untuk set watermark kecil\n"
+                    "2. Kirim perintah /medium untuk set watermark sedang\n"
+                    "3. Kirim foto\n\n"
+                    "Atau kirim foto dengan caption:\n"
+                    "- small\n"
+                    "- medium\n\n"
+                    "Contoh:\n"
+                    "Kirim foto + caption: small"
+                )
+                continue
 
             if text == "/small":
-
                 USER_SIZE_MODE[chat_id] = "small"
-
-                send_message(chat_id, "Mode small aktif")
-
+                send_message(chat_id, "Mode default watermark diubah ke: small")
                 continue
 
             if text == "/medium":
-
                 USER_SIZE_MODE[chat_id] = "medium"
-
-                send_message(chat_id, "Mode medium aktif")
-
+                send_message(chat_id, "Mode default watermark diubah ke: medium")
                 continue
 
             if "photo" in msg:
-
                 handle_photo_message(msg)
+                continue
+
+            if msg:
+                current_mode = USER_SIZE_MODE.get(chat_id, "medium")
+                send_message(
+                    chat_id,
+                    f"Mode saat ini: {current_mode}\n"
+                    "Kirim foto untuk mendapatkan watermark waktu.\n"
+                    "Gunakan /small atau /medium untuk mengganti ukuran."
+                )
 
         time.sleep(1)
 
