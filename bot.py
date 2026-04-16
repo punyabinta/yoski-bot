@@ -39,21 +39,34 @@ def format_time(dt):
 
 
 def get_font(path: str, size: int):
-    candidates = [
-        path,
-        f"/usr/share/fonts/truetype/msttcorefonts/{path}",
-        f"/usr/share/fonts/truetype/liberation/{path.replace('arial', 'LiberationSans').replace('arialbd', 'LiberationSans-Bold')}",
-        f"/usr/share/fonts/truetype/dejavu/DejaVuSans{'-Bold' if 'bd' in path else ''}.ttf",
-        "/System/Library/Fonts/Helvetica.ttc",
-    ]
+    is_bold = "bd" in path.lower() or "bold" in path.lower()
+    is_mono = "cour" in path.lower() or "mono" in path.lower()
+
+    candidates = [path]
+
+    if is_mono:
+        candidates += [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+            "/usr/share/fonts/truetype/msttcorefonts/cour.ttf",
+            "/usr/share/fonts/truetype/freefont/FreeMono.ttf",
+        ]
+    else:
+        candidates += [
+            f"/usr/share/fonts/truetype/msttcorefonts/{path}",
+            f"/usr/share/fonts/truetype/liberation/{path.replace('arial', 'LiberationSans').replace('arialbd', 'LiberationSans-Bold')}",
+            f"/usr/share/fonts/truetype/dejavu/DejaVuSans{'-Bold' if is_bold else ''}.ttf",
+            "/System/Library/Fonts/Helvetica.ttc",
+        ]
+
     for p in candidates:
         if os.path.exists(p):
             try:
                 return ImageFont.truetype(p, size)
             except Exception:
                 pass
-    return ImageFont.load_default()
 
+    return ImageFont.load_default()
 
 def safe_text(draw, xy, text, fill, font):
     try:
@@ -66,33 +79,10 @@ def safe_text(draw, xy, text, fill, font):
 def add_watermark(input_path: str, output_path: str, size_mode: str = "medium") -> None:
     img = Image.open(input_path).convert("RGBA")
     W, H = img.size
+    is_portrait = H > W
 
     overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
-
-    scales = {
-        "medium": 1.0,
-        "small": 0.74,
-    }
-    scale = scales.get(size_mode, 1.0)
-
-    def s(v):
-        return max(1, int(v * scale))
-
-    # Font dinamis
-    f_appname = get_font("arial.ttf", s(13))
-    f_label   = get_font("arialbd.ttf", s(11))
-    f_time    = get_font("cour.ttf", s(17))
-    f_btn     = get_font("arial.ttf", s(13))
-    f_status  = get_font("arial.ttf", s(13))
-    f_diff    = get_font("cour.ttf", s(12))
-
-    if not any(os.path.exists(p) for p in [
-        "cour.ttf",
-        "/usr/share/fonts/truetype/msttcorefonts/cour.ttf"
-    ]):
-        f_time = get_font("arialbd.ttf", s(16))
-        f_diff = get_font("arial.ttf", s(11))
 
     utc = datetime.now(timezone.utc)
     local = utc + timedelta(hours=7)
@@ -100,33 +90,61 @@ def add_watermark(input_path: str, output_path: str, size_mode: str = "medium") 
     line_utc = format_time(utc)
     line_local = format_time(local)
 
-    # Ukuran box berdasarkan mode
+    # ── AUTO RESIZE BERDASARKAN PORTRAIT / LANDSCAPE ──────────────────────
+    # small: lebar lebih kecil, tinggi tetap
     if size_mode == "small":
-        box_ratio = 0.56
-        min_box_w = 360
-        max_box_w = 620
-        base_box_h = 170
-    else:
-        box_ratio = 0.70
-        min_box_w = 520
-        max_box_w = 860
-        base_box_h = 222
+        if is_portrait:
+            box_ratio = 0.44
+            min_box_w = 300
+            max_box_w = 470
+            base_box_h = 222
+        else:
+            box_ratio = 0.36
+            min_box_w = 300
+            max_box_w = 500
+            base_box_h = 222
+    else:  # medium
+        if is_portrait:
+            box_ratio = 0.72
+            min_box_w = 480
+            max_box_w = 760
+            base_box_h = 222
+        else:
+            box_ratio = 0.58
+            min_box_w = 520
+            max_box_w = 860
+            base_box_h = 222
 
     BOX_W = max(min_box_w, min(max_box_w, int(W * box_ratio)))
-    BOX_H = s(base_box_h)
+    BOX_H = base_box_h
+
+    # scaling ringan agar elemen ikut proporsional ke box
+    scale = BOX_W / 620.0
+
+    def s(v):
+        return max(1, int(v * scale))
+
     RADIUS = s(14)
 
-    bx = max(10, W - BOX_W - 20)
-    by = max(10, H - BOX_H - 20)
+    # Posisi: tetap di kanan bawah, tapi aman untuk gambar kecil
+    bx = max(10, W - BOX_W - s(20))
+    by = max(10, H - BOX_H - s(20))
 
-    C_WIN_BG   = (30, 30, 30, 225)
-    C_TITLE_BG = (42, 42, 42, 230)
-    C_TIME_BG  = (17, 17, 17, 240)
+    # ── WARNA ──────────────────────────────────────────────────────────────
+    C_WIN_BG   = (30, 30, 30, 235)
+    C_TITLE_BG = (42, 42, 42, 240)
+
+    # main body full hitam
+    C_TIME_BG  = (0, 0, 0, 255)
+
     C_BTN_SYNC = (26, 111, 212, 255)
     C_BTN_AUTO = (46, 46, 46, 255)
     C_BTN_SET  = (39, 39, 39, 255)
-    C_FOOTER   = (26, 26, 26, 230)
-    C_DIVIDER  = (50, 50, 50, 200)
+
+    # footer full hitam
+    C_FOOTER   = (0, 0, 0, 255)
+
+    C_DIVIDER  = (50, 50, 50, 220)
     C_GRAY     = (136, 136, 136, 255)
     C_WHITE    = (255, 255, 255, 255)
     C_TEAL     = (46, 207, 192, 255)
@@ -134,7 +152,22 @@ def add_watermark(input_path: str, output_path: str, size_mode: str = "medium") 
     C_GREEN    = (40, 200, 64, 255)
     C_SILVER   = (200, 200, 200, 255)
 
-    # Background utama
+    # ── FONT ───────────────────────────────────────────────────────────────
+    f_appname = get_font("arial.ttf", s(13))
+    f_label   = get_font("arialbd.ttf", s(11))
+
+    # body/waktu pakai monospace
+    f_time    = get_font("cour.ttf", s(17))
+    f_btn     = get_font("arial.ttf", s(13))
+    f_status  = get_font("arial.ttf", s(13))
+    f_diff    = get_font("cour.ttf", s(12))
+
+    # fallback kalau cour tidak ada
+    if getattr(f_time, "getname", lambda: ("", ""))()[0] == "Default":
+        f_time = get_font("mono.ttf", s(17))
+        f_diff = get_font("mono.ttf", s(12))
+
+    # ── BACKGROUND UTAMA ───────────────────────────────────────────────────
     draw.rounded_rectangle(
         [bx, by, bx + BOX_W, by + BOX_H],
         radius=RADIUS,
@@ -160,10 +193,11 @@ def add_watermark(input_path: str, output_path: str, size_mode: str = "medium") 
         draw.ellipse([cx, by + s(13), cx + s(13), by + s(26)], fill=col)
 
     title = "Bob's Time"
-    tw = draw.textbbox((0, 0), title, font=f_appname)[2]
+    title_bbox = draw.textbbox((0, 0), title, font=f_appname)
+    tw = title_bbox[2] - title_bbox[0]
     safe_text(draw, (bx + (BOX_W - tw) // 2, by + s(12)), title, C_GRAY, f_appname)
 
-    # Layout body
+    # ── LAYOUT BODY ────────────────────────────────────────────────────────
     BODY_Y = by + TITLE_H + s(14)
     BTN_W = s(132 if size_mode == "medium" else 110)
     PANEL_X = bx + s(20)
@@ -183,7 +217,7 @@ def add_watermark(input_path: str, output_path: str, size_mode: str = "medium") 
     )
     safe_text(draw, (PANEL_X + s(14), U_Y + s(11)), line_utc, C_TEAL, f_time)
 
-    # Panel WIB
+    # Panel LOCAL
     L_LBL_Y = U_Y + TIME_H + s(12)
     safe_text(draw, (PANEL_X, L_LBL_Y), "LOCAL PC TIME", C_GRAY, f_label)
     L_Y = L_LBL_Y + s(17)
@@ -219,7 +253,7 @@ def add_watermark(input_path: str, output_path: str, size_mode: str = "medium") 
     )
     safe_text(draw, (BTN_X + s(18), B3Y + s(9)), "Settings", C_GRAY, f_btn)
 
-    # Footer
+    # ── FOOTER FULL HITAM ──────────────────────────────────────────────────
     FOOT_H = s(36 if size_mode == "medium" else 30)
     FOOT_Y = by + BOX_H - FOOT_H
     draw.rectangle([bx, FOOT_Y, bx + BOX_W, by + BOX_H], fill=C_FOOTER)
@@ -229,12 +263,12 @@ def add_watermark(input_path: str, output_path: str, size_mode: str = "medium") 
     safe_text(draw, (bx + s(38), FOOT_Y + s(8)), "Synced Perfectly", C_GREEN, f_status)
 
     diff = "diff: 0.0s via NIST"
-    dw = draw.textbbox((0, 0), diff, font=f_diff)[2]
+    diff_bbox = draw.textbbox((0, 0), diff, font=f_diff)
+    dw = diff_bbox[2] - diff_bbox[0]
     safe_text(draw, (bx + BOX_W - dw - s(18), FOOT_Y + s(9)), diff, C_GRAY, f_diff)
 
     result = Image.alpha_composite(img, overlay)
     result.convert("RGB").save(output_path, quality=95)
-
 
 def send_message(chat_id: int, text: str) -> None:
     try:
