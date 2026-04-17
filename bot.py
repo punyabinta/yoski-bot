@@ -31,6 +31,8 @@ def run_health_server():
     server = HTTPServer(("0.0.0.0", port), HealthHandler)
     print(f"Health server berjalan di port {port}")
     server.serve_forever()
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -68,11 +70,11 @@ def get_font(path: str, size: int):
 
     return ImageFont.load_default()
 
+
 def safe_text(draw, xy, text, fill, font):
     try:
         draw.text(xy, text, fill=fill, font=font)
     except Exception:
-        # fallback sederhana kalau ada karakter/font issue
         draw.text(xy, str(text).encode("ascii", "ignore").decode(), fill=fill, font=font)
 
 
@@ -80,6 +82,7 @@ def add_watermark(input_path: str, output_path: str, size_mode: str = "medium") 
     img = Image.open(input_path).convert("RGBA")
     W, H = img.size
     is_portrait = H > W
+    is_landscape = W > H
 
     overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
@@ -91,34 +94,32 @@ def add_watermark(input_path: str, output_path: str, size_mode: str = "medium") 
     line_local = format_time(local)
 
     # ── AUTO RESIZE BERDASARKAN PORTRAIT / LANDSCAPE ──────────────────────
-    # small: lebar lebih kecil, tinggi tetap
     if size_mode == "small":
         if is_portrait:
-            box_ratio = 0.44
+            box_ratio = 0.43
+            min_box_w = 300
+            max_box_w = 440
+            base_box_h = 132
+        else:
+            box_ratio = 0.35
             min_box_w = 300
             max_box_w = 470
-            base_box_h = 222
-        else:
-            box_ratio = 0.36
-            min_box_w = 300
-            max_box_w = 500
-            base_box_h = 222
+            base_box_h = 132
     else:  # medium
         if is_portrait:
-            box_ratio = 0.72
-            min_box_w = 480
+            box_ratio = 0.68
+            min_box_w = 470
             max_box_w = 760
-            base_box_h = 222
+            base_box_h = 205
         else:
             box_ratio = 0.58
             min_box_w = 520
             max_box_w = 860
-            base_box_h = 222
+            base_box_h = 205
 
     BOX_W = max(min_box_w, min(max_box_w, int(W * box_ratio)))
     BOX_H = base_box_h
 
-    # scaling ringan agar elemen ikut proporsional ke box
     scale = BOX_W / 620.0
 
     def s(v):
@@ -126,25 +127,23 @@ def add_watermark(input_path: str, output_path: str, size_mode: str = "medium") 
 
     RADIUS = s(14)
 
-    # Posisi: tetap di kanan bawah, tapi aman untuk gambar kecil
     bx = max(10, W - BOX_W - s(20))
     by = max(10, H - BOX_H - s(20))
 
     # ── WARNA ──────────────────────────────────────────────────────────────
-    C_WIN_BG   = (30, 30, 30, 235)
-    C_TITLE_BG = (42, 42, 42, 240)
+    # Background utama tetap gelap, tapi body/footer akan ditimpa hitam solid
+    C_WIN_BG   = (30, 30, 30, 245)
+    C_TITLE_BG = (42, 42, 42, 255)
 
-    # main body full hitam
+    # Full hitam solid
     C_TIME_BG  = (0, 0, 0, 255)
+    C_FOOTER   = (0, 0, 0, 255)
 
     C_BTN_SYNC = (26, 111, 212, 255)
     C_BTN_AUTO = (46, 46, 46, 255)
     C_BTN_SET  = (39, 39, 39, 255)
 
-    # footer full hitam
-    C_FOOTER   = (0, 0, 0, 255)
-
-    C_DIVIDER  = (50, 50, 50, 220)
+    C_DIVIDER  = (58, 58, 58, 255)
     C_GRAY     = (136, 136, 136, 255)
     C_WHITE    = (255, 255, 255, 255)
     C_TEAL     = (46, 207, 192, 255)
@@ -153,19 +152,40 @@ def add_watermark(input_path: str, output_path: str, size_mode: str = "medium") 
     C_SILVER   = (200, 200, 200, 255)
 
     # ── FONT ───────────────────────────────────────────────────────────────
-    f_appname = get_font("arial.ttf", s(13))
-    f_label   = get_font("arialbd.ttf", s(11))
+    # khusus medium landscape: font diperkecil agar horizontal rapi
+    if size_mode == "medium":
+        if is_landscape:
+            app_font_size = s(12)
+            label_font_size = s(10)
+            time_font_size = s(14)
+            btn_font_size = s(12)
+            status_font_size = s(12)
+            diff_font_size = s(11)
+        else:
+            app_font_size = s(13)
+            label_font_size = s(11)
+            time_font_size = s(17)
+            btn_font_size = s(13)
+            status_font_size = s(13)
+            diff_font_size = s(12)
+    else:
+        app_font_size = s(13)
+        label_font_size = s(11)
+        time_font_size = s(12)
+        btn_font_size = s(10)
+        status_font_size = s(10)
+        diff_font_size = s(10)
 
-    # body/waktu pakai monospace
-    f_time    = get_font("cour.ttf", s(17))
-    f_btn     = get_font("arial.ttf", s(13))
-    f_status  = get_font("arial.ttf", s(13))
-    f_diff    = get_font("cour.ttf", s(12))
+    f_appname = get_font("arial.ttf", app_font_size)
+    f_label   = get_font("arialbd.ttf", label_font_size)
+    f_time    = get_font("cour.ttf", time_font_size)
+    f_btn     = get_font("arial.ttf", btn_font_size)
+    f_status  = get_font("arial.ttf", status_font_size)
+    f_diff    = get_font("cour.ttf", diff_font_size)
 
-    # fallback kalau cour tidak ada
     if getattr(f_time, "getname", lambda: ("", ""))()[0] == "Default":
-        f_time = get_font("mono.ttf", s(17))
-        f_diff = get_font("mono.ttf", s(12))
+        f_time = get_font("mono.ttf", time_font_size)
+        f_diff = get_font("mono.ttf", diff_font_size)
 
     # ── BACKGROUND UTAMA ───────────────────────────────────────────────────
     draw.rounded_rectangle(
@@ -175,7 +195,7 @@ def add_watermark(input_path: str, output_path: str, size_mode: str = "medium") 
     )
 
     # Header
-    TITLE_H = s(38)
+    TITLE_H = s(38 if size_mode == "medium" else 30)
     draw.rounded_rectangle(
         [bx, by, bx + BOX_W, by + TITLE_H + RADIUS],
         radius=RADIUS,
@@ -198,77 +218,120 @@ def add_watermark(input_path: str, output_path: str, size_mode: str = "medium") 
     safe_text(draw, (bx + (BOX_W - tw) // 2, by + s(12)), title, C_GRAY, f_appname)
 
     # ── LAYOUT BODY ────────────────────────────────────────────────────────
-    BODY_Y = by + TITLE_H + s(14)
-    BTN_W = s(132 if size_mode == "medium" else 110)
-    PANEL_X = bx + s(20)
-    PANEL_W = BOX_W - BTN_W - s(56)
-    BTN_X = bx + BOX_W - BTN_W - s(16)
-    B_H = s(34 if size_mode == "medium" else 28)
-    B_GAP = s(10)
-    TIME_H = s(43 if size_mode == "medium" else 34)
+    BODY_Y = by + TITLE_H + s(12)
+
+    if size_mode == "small":
+        BTN_W = s(98)
+        PANEL_X = bx + s(18)
+        PANEL_W = BOX_W - BTN_W - s(46)
+        BTN_X = bx + BOX_W - BTN_W - s(14)
+
+        B_H = s(24)
+        B_GAP = s(7)
+        TIME_H = s(24)
+        LABEL_GAP = s(12)
+        TIME_TEXT_DY = s(5)
+        FOOT_H = s(24)
+    else:
+        if is_landscape:
+            BTN_W = s(118)
+            PANEL_X = bx + s(18)
+            PANEL_W = BOX_W - BTN_W - s(48)
+            BTN_X = bx + BOX_W - BTN_W - s(14)
+
+            B_H = s(30)
+            B_GAP = s(8)
+            TIME_H = s(30)
+            LABEL_GAP = s(15)
+            TIME_TEXT_DY = s(6)
+            FOOT_H = s(30)
+        else:
+            BTN_W = s(132)
+            PANEL_X = bx + s(20)
+            PANEL_W = BOX_W - BTN_W - s(56)
+            BTN_X = bx + BOX_W - BTN_W - s(16)
+
+            B_H = s(34)
+            B_GAP = s(10)
+            TIME_H = s(36)
+            LABEL_GAP = s(17)
+            TIME_TEXT_DY = s(8)
+            FOOT_H = s(34)
+
+    # ── BODY AREA FULL HITAM SOLID ────────────────────────────────────────
+    FOOT_Y = by + BOX_H - FOOT_H
+    BODY_BLACK_TOP = by + TITLE_H + 1
+    BODY_BLACK_BOTTOM = FOOT_Y
+
+    draw.rectangle(
+        [bx, BODY_BLACK_TOP, bx + BOX_W, BODY_BLACK_BOTTOM],
+        fill=C_TIME_BG
+    )
+
+    # Divider header/body
+    draw.rectangle([bx, BODY_BLACK_TOP, bx + BOX_W, BODY_BLACK_TOP + 1], fill=C_DIVIDER)
 
     # Panel UTC
     safe_text(draw, (PANEL_X, BODY_Y), "SERVER TIME (UTC)", C_GRAY, f_label)
-    U_Y = BODY_Y + s(17)
+    U_Y = BODY_Y + LABEL_GAP
     draw.rounded_rectangle(
         [PANEL_X, U_Y, PANEL_X + PANEL_W, U_Y + TIME_H],
-        radius=s(9),
+        radius=s(8),
         fill=C_TIME_BG
     )
-    safe_text(draw, (PANEL_X + s(14), U_Y + s(11)), line_utc, C_TEAL, f_time)
+    safe_text(draw, (PANEL_X + s(14), U_Y + TIME_TEXT_DY), line_utc, C_TEAL, f_time)
 
     # Panel LOCAL
-    L_LBL_Y = U_Y + TIME_H + s(12)
+    L_LBL_Y = U_Y + TIME_H + s(8 if size_mode == "small" else 10)
     safe_text(draw, (PANEL_X, L_LBL_Y), "LOCAL PC TIME", C_GRAY, f_label)
-    L_Y = L_LBL_Y + s(17)
+    L_Y = L_LBL_Y + LABEL_GAP
     draw.rounded_rectangle(
         [PANEL_X, L_Y, PANEL_X + PANEL_W, L_Y + TIME_H],
-        radius=s(9),
+        radius=s(8),
         fill=C_TIME_BG
     )
-    safe_text(draw, (PANEL_X + s(14), L_Y + s(11)), line_local, C_YELLOW, f_time)
+    safe_text(draw, (PANEL_X + s(14), L_Y + TIME_TEXT_DY), line_local, C_YELLOW, f_time)
 
     # Tombol kanan
-    B1Y = BODY_Y + s(4)
+    B1Y = BODY_Y + s(2)
     draw.rounded_rectangle(
         [BTN_X, B1Y, BTN_X + BTN_W, B1Y + B_H],
-        radius=s(9),
+        radius=s(8),
         fill=C_BTN_SYNC
     )
-    safe_text(draw, (BTN_X + s(18), B1Y + s(9)), "Sync Now", C_WHITE, f_btn)
+    safe_text(draw, (BTN_X + s(14), B1Y + s(7)), "Sync Now", C_WHITE, f_btn)
 
     B2Y = B1Y + B_H + B_GAP
     draw.rounded_rectangle(
         [BTN_X, B2Y, BTN_X + BTN_W, B2Y + B_H],
-        radius=s(9),
+        radius=s(8),
         fill=C_BTN_AUTO
     )
-    safe_text(draw, (BTN_X + s(15), B2Y + s(9)), "Auto Sync", C_SILVER, f_btn)
+    safe_text(draw, (BTN_X + s(12), B2Y + s(7)), "Auto Sync", C_SILVER, f_btn)
 
     B3Y = B2Y + B_H + B_GAP
     draw.rounded_rectangle(
         [BTN_X, B3Y, BTN_X + BTN_W, B3Y + B_H],
-        radius=s(9),
+        radius=s(8),
         fill=C_BTN_SET
     )
-    safe_text(draw, (BTN_X + s(18), B3Y + s(9)), "Settings", C_GRAY, f_btn)
+    safe_text(draw, (BTN_X + s(14), B3Y + s(7)), "Settings", C_GRAY, f_btn)
 
-    # ── FOOTER FULL HITAM ──────────────────────────────────────────────────
-    FOOT_H = s(36 if size_mode == "medium" else 30)
-    FOOT_Y = by + BOX_H - FOOT_H
+    # ── FOOTER FULL HITAM SOLID ────────────────────────────────────────────
     draw.rectangle([bx, FOOT_Y, bx + BOX_W, by + BOX_H], fill=C_FOOTER)
     draw.rectangle([bx, FOOT_Y, bx + BOX_W, FOOT_Y + 1], fill=C_DIVIDER)
 
-    draw.ellipse([bx + s(20), FOOT_Y + s(10), bx + s(30), FOOT_Y + s(20)], fill=C_GREEN)
-    safe_text(draw, (bx + s(38), FOOT_Y + s(8)), "Synced Perfectly", C_GREEN, f_status)
+    draw.ellipse([bx + s(20), FOOT_Y + s(8), bx + s(30), FOOT_Y + s(18)], fill=C_GREEN)
+    safe_text(draw, (bx + s(38), FOOT_Y + s(5)), "Synced Perfectly", C_GREEN, f_status)
 
     diff = "diff: 0.0s via NIST"
     diff_bbox = draw.textbbox((0, 0), diff, font=f_diff)
     dw = diff_bbox[2] - diff_bbox[0]
-    safe_text(draw, (bx + BOX_W - dw - s(18), FOOT_Y + s(9)), diff, C_GRAY, f_diff)
+    safe_text(draw, (bx + BOX_W - dw - s(16), FOOT_Y + s(6)), diff, C_GRAY, f_diff)
 
     result = Image.alpha_composite(img, overlay)
     result.convert("RGB").save(output_path, quality=95)
+
 
 def send_message(chat_id: int, text: str) -> None:
     try:
@@ -399,7 +462,6 @@ def main():
         print("ERROR: BOT_TOKEN belum di-set.")
         return
 
-    # Jalankan health server di thread terpisah
     t = threading.Thread(target=run_health_server, daemon=True)
     t.start()
 
