@@ -91,11 +91,11 @@ def add_watermark(input_path: str, output_path: str) -> None:
     REF_W = 1080.0
 
     if is_portrait:
-        # Portrait: watermark pakai ~72% lebar gambar
-        BOX_W = max(300, min(900, int(W * 0.72)))
+        # Portrait: watermark pakai ~52% lebar gambar
+        BOX_W = max(300, min(900, int(W * 0.52)))
     else:
-        # Landscape: watermark pakai ~62% lebar gambar
-        BOX_W = max(420, min(1100, int(W * 0.62)))
+        # Landscape: watermark pakai ~42% lebar gambar
+        BOX_W = max(420, min(1100, int(W * 0.42)))
 
     # Unit skala: semua angka desain (px) dikalikan unit ini
     unit = BOX_W / REF_W
