@@ -104,18 +104,18 @@ def add_watermark(input_path: str, output_path: str) -> None:
         return max(1, int(v * unit_h))
 
     # ── TINGGI BOX: dihitung dari komponen ──────────────────────────────
-    TITLE_H    = u(52)
-    LABEL_H    = u(28)
-    TIMEBOX_H  = u(58)
-    GAP_INNER  = u(18)
-    BODY_PAD_T = u(18)
-    BODY_PAD_B = u(14)
-    FOOTER_H   = u(44)
+    TITLE_H    = u(68)
+    LABEL_H    = u(36)
+    TIMEBOX_H  = u(75)
+    GAP_INNER  = u(23)
+    BODY_PAD_T = u(23)
+    BODY_PAD_B = u(18)
+    FOOTER_H   = u(57)
 
     BODY_H = BODY_PAD_T + LABEL_H + TIMEBOX_H + GAP_INNER + LABEL_H + TIMEBOX_H + BODY_PAD_B
     BOX_H  = TITLE_H + BODY_H + FOOTER_H
 
-    RADIUS = u(16)
+    RADIUS = u(20)
 
     # ── POSISI: pojok kanan bawah dengan margin ──────────────────────────
     MARGIN_X = u(28)
@@ -144,12 +144,12 @@ def add_watermark(input_path: str, output_path: str) -> None:
     C_SILVER    = (195, 195, 195, 255)
 
     # ── FONT: semua proporsional ─────────────────────────────────────────
-    sz_title    = u(22)
-    sz_label    = u(18)
-    sz_time     = u(24)
-    sz_btn      = u(20)
-    sz_status   = u(20)
-    sz_diff     = u(18)
+    sz_title    = u(29)
+    sz_label    = u(23)
+    sz_time     = u(31)
+    sz_btn      = u(26)
+    sz_status   = u(26)
+    sz_diff     = u(23)
 
     f_appname = get_font("arial.ttf",   sz_title)
     f_label   = get_font("arialbd.ttf", sz_label)
@@ -420,13 +420,28 @@ def main():
     threading.Thread(target=run_health_server, daemon=True).start()
     print("Bot berjalan...")
     offset = None
+    processed_ids = set()   # cegah update diproses dua kali
 
     while True:
         data = get_updates(offset)
 
         for update in data.get("result", []):
-            offset = update["update_id"] + 1
-            msg    = update.get("message", {})
+            update_id = update["update_id"]
+
+            # Selalu update offset
+            if offset is None or update_id >= offset:
+                offset = update_id + 1
+
+            # Skip jika sudah diproses
+            if update_id in processed_ids:
+                continue
+            processed_ids.add(update_id)
+
+            # Jaga ukuran set agar tidak terus membesar
+            if len(processed_ids) > 500:
+                processed_ids.clear()
+
+            msg     = update.get("message", {})
             chat_id = msg.get("chat", {}).get("id")
             if not chat_id:
                 continue
