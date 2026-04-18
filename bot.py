@@ -85,37 +85,35 @@ def add_watermark(input_path: str, output_path: str) -> None:
     line_utc   = format_time(utc)
     line_local = format_time(local)
 
-    # ── AUTO-SCALE: hitung unit dasar dari lebar gambar ──────────────────
-    # Referensi desain dibuat di lebar 1080px
-    # Semua ukuran proporsional terhadap lebar gambar aktual
-    REF_W = 1080.0
+    # ── SKALA TERPISAH ────────────────────────────────────────────────────
+    # BOX_W : hanya mengontrol LEBAR kontainer (52% / 42% dari W)
+    # u()   : mengontrol TINGGI, FONT, PADDING — berdasarkan tinggi gambar H
+    #         mengecilkan BOX_W tidak mempengaruhi font/tinggi sama sekali
 
     if is_portrait:
-        # Portrait: watermark pakai ~52% lebar gambar
-        BOX_W = max(300, min(900, int(W * 0.52)))
+        BOX_W = max(300, min(900,  int(W * 0.52)))
     else:
-        # Landscape: watermark pakai ~42% lebar gambar
         BOX_W = max(420, min(1100, int(W * 0.42)))
 
-    # Unit skala: semua angka desain (px) dikalikan unit ini
-    unit = BOX_W / REF_W
+    # Referensi tinggi desain = 1920px
+    REF_H  = 1920.0
+    unit_h = H / REF_H
 
     def u(v):
-        """Scale nilai desain ke ukuran aktual."""
-        return max(1, int(v * unit))
+        """Scale berdasarkan TINGGI gambar — font & padding tidak ikut mengecil saat lebar dikurangi."""
+        return max(1, int(v * unit_h))
 
     # ── TINGGI BOX: dihitung dari komponen ──────────────────────────────
     TITLE_H    = u(52)
     LABEL_H    = u(28)
     TIMEBOX_H  = u(58)
-    GAP_INNER  = u(18)   # jarak antar elemen dalam body
-    BODY_PAD_T = u(18)   # padding atas body
-    BODY_PAD_B = u(14)   # padding bawah body sebelum footer
+    GAP_INNER  = u(18)
+    BODY_PAD_T = u(18)
+    BODY_PAD_B = u(14)
     FOOTER_H   = u(44)
 
-    # Total body tinggi: pad_atas + label + timebox + gap + label + timebox + pad_bawah
-    BODY_H  = BODY_PAD_T + LABEL_H + TIMEBOX_H + GAP_INNER + LABEL_H + TIMEBOX_H + BODY_PAD_B
-    BOX_H   = TITLE_H + BODY_H + FOOTER_H
+    BODY_H = BODY_PAD_T + LABEL_H + TIMEBOX_H + GAP_INNER + LABEL_H + TIMEBOX_H + BODY_PAD_B
+    BOX_H  = TITLE_H + BODY_H + FOOTER_H
 
     RADIUS = u(16)
 
@@ -202,11 +200,14 @@ def add_watermark(input_path: str, output_path: str) -> None:
     draw.rectangle([bx, BODY_TOP, bx+BOX_W, BODY_TOP+1], fill=C_DIVIDER)
 
     # Layout: panel kiri + tombol kanan
-    BTN_W   = u(200)
-    BTN_PAD = u(16)
-    PANEL_X = bx + u(22)
-    PANEL_W = BOX_W - BTN_W - u(22) - BTN_PAD - u(14)
-    BTN_X   = bx + BOX_W - BTN_W - u(14)
+    # Lebar tombol & padding pakai proporsi BOX_W agar tidak overflow
+    BTN_W   = int(BOX_W * 0.30)   # 30% dari lebar box
+    PAD_L   = int(BOX_W * 0.035)  # padding kiri panel
+    PAD_R   = int(BOX_W * 0.025)  # padding kanan tombol
+    GAP_BTN = int(BOX_W * 0.025)  # gap antara panel dan tombol
+    PANEL_X = bx + PAD_L
+    PANEL_W = BOX_W - BTN_W - PAD_L - GAP_BTN - PAD_R
+    BTN_X   = bx + BOX_W - BTN_W - PAD_R
 
     # Cursor y untuk panel kiri
     cur_y = BODY_TOP + BODY_PAD_T
