@@ -11,9 +11,8 @@ from datetime import datetime, timezone, timedelta
 TOKEN = os.getenv("BOT_TOKEN")
 URL = f"https://api.telegram.org/bot{TOKEN}"
 
-USER_SIZE_MODE = {}
 
-
+# ── Health check ──────────────────────────────────────────────────────────────
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -31,6 +30,7 @@ def run_health_server():
     server.serve_forever()
 
 
+# ── Helpers ───────────────────────────────────────────────────────────────────
 def format_time(dt):
     return dt.strftime("%A | %B %d, %Y at %H:%M:%S")
 
@@ -40,13 +40,12 @@ def get_font(path: str, size: int):
     is_mono = "cour" in path.lower() or "mono" in path.lower()
 
     candidates = [path]
-
     if is_mono:
         candidates += [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf" if is_bold else "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-            "/usr/share/fonts/truetype/liberation/LiberationMono-Bold.ttf" if is_bold else "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
-            "/usr/share/fonts/truetype/msttcorefonts/courbd.ttf" if is_bold else "/usr/share/fonts/truetype/msttcorefonts/cour.ttf",
-            "/usr/share/fonts/truetype/freefont/FreeMonoBold.ttf" if is_bold else "/usr/share/fonts/truetype/freefont/FreeMono.ttf",
+            f"/usr/share/fonts/truetype/dejavu/DejaVuSansMono{'-Bold' if is_bold else ''}.ttf",
+            f"/usr/share/fonts/truetype/liberation/LiberationMono-{'Bold' if is_bold else 'Regular'}.ttf",
+            f"/usr/share/fonts/truetype/msttcorefonts/{'courbd' if is_bold else 'cour'}.ttf",
+            f"/usr/share/fonts/truetype/freefont/FreeMono{'Bold' if is_bold else ''}.ttf",
         ]
     else:
         candidates += [
@@ -62,7 +61,6 @@ def get_font(path: str, size: int):
                 return ImageFont.truetype(p, size)
             except Exception:
                 pass
-
     return ImageFont.load_default()
 
 
@@ -73,226 +71,264 @@ def safe_text(draw, xy, text, fill, font):
         draw.text(xy, str(text).encode("ascii", "ignore").decode(), fill=fill, font=font)
 
 
-def add_watermark(input_path: str, output_path: str, size_mode: str = "medium") -> None:
+# ── Core watermark ────────────────────────────────────────────────────────────
+def add_watermark(input_path: str, output_path: str) -> None:
     img = Image.open(input_path).convert("RGBA")
     W, H = img.size
-    is_portrait = H > W
-    is_landscape = W > H
+    is_portrait = H >= W   # square dianggap portrait
 
     overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
 
-    utc = datetime.now(timezone.utc)
+    utc   = datetime.now(timezone.utc)
     local = utc + timedelta(hours=7)
-    line_utc = format_time(utc)
+    line_utc   = format_time(utc)
     line_local = format_time(local)
 
-    # ── DIMENSI BOX ───────────────────────────────────────────────────────
-    if size_mode == "small":
-        if is_portrait:
-            box_ratio = 0.43
-            min_box_w, max_box_w = 300, 440
-            base_box_h = 132
-        else:
-            box_ratio = 0.35
-            min_box_w, max_box_w = 300, 470
-            base_box_h = 132
-    else:  # medium
-        if is_portrait:
-            box_ratio = 0.68
-            min_box_w, max_box_w = 470, 760
-            base_box_h = 205
-        else:
-            # REVISI: landscape lebih besar
-            box_ratio = 0.65
-            min_box_w, max_box_w = 580, 960
-            base_box_h = 215
+    # ── AUTO-SCALE: hitung unit dasar dari lebar gambar ──────────────────
+    # Referensi desain dibuat di lebar 1080px
+    # Semua ukuran proporsional terhadap lebar gambar aktual
+    REF_W = 1080.0
 
-    BOX_W = max(min_box_w, min(max_box_w, int(W * box_ratio)))
-    BOX_H = base_box_h
-    scale = BOX_W / 620.0
-
-    def s(v):
-        return max(1, int(v * scale))
-
-    RADIUS = s(14)
-
-    bx = max(10, W - BOX_W - s(20))
-
-    # REVISI: medium portrait lebih naik (offset lebih besar), landscape sedikit turun
-    if size_mode == "medium":
-        if is_portrait:
-            by = max(10, H - BOX_H - s(60))   # naik ~40px lebih dari sebelumnya
-        else:
-            by = max(10, H - BOX_H - s(10))   # landscape sedikit turun
+    if is_portrait:
+        # Portrait: watermark pakai ~72% lebar gambar
+        BOX_W = max(300, min(900, int(W * 0.72)))
     else:
-        by = max(10, H - BOX_H - s(20))       # small tetap
+        # Landscape: watermark pakai ~62% lebar gambar
+        BOX_W = max(420, min(1100, int(W * 0.62)))
 
-    # ── WARNA ─────────────────────────────────────────────────────────────
-    C_WIN_BG   = (30, 30, 30, 245)
-    C_TITLE_BG = (42, 42, 42, 255)
+    # Unit skala: semua angka desain (px) dikalikan unit ini
+    unit = BOX_W / REF_W
 
-    # REVISI: body & footer putih solid
-    C_BODY_BG  = (255, 255, 255, 255)
-    C_FOOTER   = (255, 255, 255, 255)
+    def u(v):
+        """Scale nilai desain ke ukuran aktual."""
+        return max(1, int(v * unit))
 
-    # Kotak waktu tetap gelap agar teks cerah terbaca
-    C_TIME_BG  = (20, 20, 20, 255)
+    # ── TINGGI BOX: dihitung dari komponen ──────────────────────────────
+    TITLE_H    = u(52)
+    LABEL_H    = u(28)
+    TIMEBOX_H  = u(58)
+    GAP_INNER  = u(18)   # jarak antar elemen dalam body
+    BODY_PAD_T = u(18)   # padding atas body
+    BODY_PAD_B = u(14)   # padding bawah body sebelum footer
+    FOOTER_H   = u(44)
 
-    C_BTN_SYNC = (26, 111, 212, 255)
-    C_BTN_AUTO = (46, 46, 46, 255)
-    C_BTN_SET  = (39, 39, 39, 255)
+    # Total body tinggi: pad_atas + label + timebox + gap + label + timebox + pad_bawah
+    BODY_H  = BODY_PAD_T + LABEL_H + TIMEBOX_H + GAP_INNER + LABEL_H + TIMEBOX_H + BODY_PAD_B
+    BOX_H   = TITLE_H + BODY_H + FOOTER_H
 
-    C_DIVIDER  = (58, 58, 58, 255)
-    C_DIV_FOOT = (220, 220, 220, 255)   # divider footer lebih terang karena bg putih
-    C_GRAY     = (100, 100, 100, 255)   # label di bg putih agak lebih gelap
-    C_WHITE    = (255, 255, 255, 255)
-    C_TEAL     = (30, 180, 170, 255)
-    C_YELLOW   = (200, 150, 30, 255)    # kuning lebih gelap agar terbaca di bg gelap
-    C_GREEN    = (30, 160, 50, 255)     # hijau lebih gelap agar terbaca di bg putih
-    C_SILVER   = (200, 200, 200, 255)
+    RADIUS = u(16)
 
-    # ── FONT SIZES ────────────────────────────────────────────────────────
-    if size_mode == "medium":
-        if is_landscape:
-            # REVISI: landscape font sedikit lebih besar
-            app_font_size   = s(13)
-            label_font_size = s(11)
-            time_font_size  = s(16)   # naik dari 14
-            btn_font_size   = s(13)
-            status_font_size = s(13)
-            diff_font_size  = s(12)
-        else:
-            app_font_size   = s(13)
-            label_font_size = s(11)
-            time_font_size  = s(17)
-            btn_font_size   = s(13)
-            status_font_size = s(13)
-            diff_font_size  = s(12)
-    else:
-        # REVISI: small font lebih besar
-        app_font_size   = s(13)
-        label_font_size = s(12)    # naik dari 11
-        time_font_size  = s(14)    # naik dari 12
-        btn_font_size   = s(11)    # naik dari 10
-        status_font_size = s(11)   # naik dari 10
-        diff_font_size  = s(11)    # naik dari 10
+    # ── POSISI: pojok kanan bawah dengan margin ──────────────────────────
+    MARGIN_X = u(28)
+    MARGIN_Y = u(40) if is_portrait else u(28)
 
-    f_appname = get_font("arial.ttf",    app_font_size)
-    f_label   = get_font("arialbd.ttf",  label_font_size)
-    # REVISI: small pakai font bold untuk teks waktu
-    f_time    = get_font("courbd.ttf" if size_mode == "small" else "cour.ttf", time_font_size)
-    f_btn     = get_font("arial.ttf",    btn_font_size)
-    f_status  = get_font("arial.ttf",    status_font_size)
-    f_diff    = get_font("cour.ttf",     diff_font_size)
+    bx = max(8, W - BOX_W - MARGIN_X)
+    by = max(8, H - BOX_H - MARGIN_Y)
 
-    # ── BACKGROUND UTAMA ──────────────────────────────────────────────────
+    # ── WARNA ────────────────────────────────────────────────────────────
+    C_WIN_BG    = (28,  28,  28,  240)
+    C_TITLE_BG  = (40,  40,  40,  255)
+    C_BODY_BG   = (255, 255, 255, 255)   # putih solid
+    C_FOOTER_BG = (255, 255, 255, 255)   # putih solid
+    C_TIMEBOX   = (18,  18,  18,  255)   # kotak waktu gelap
+    C_BTN_SYNC  = (26,  111, 212, 255)
+    C_BTN_AUTO  = (50,  50,  50,  255)
+    C_BTN_SET   = (42,  42,  42,  255)
+    C_DIVIDER   = (55,  55,  55,  255)
+    C_DIV_LIGHT = (210, 210, 210, 255)
+    C_GRAY_LBL  = (90,  90,  90,  255)
+    C_GRAY_TITL = (150, 150, 150, 255)
+    C_WHITE     = (255, 255, 255, 255)
+    C_TEAL      = (30,  185, 172, 255)
+    C_YELLOW    = (195, 148, 28,  255)
+    C_GREEN     = (28,  155, 48,  255)
+    C_SILVER    = (195, 195, 195, 255)
+
+    # ── FONT: semua proporsional ─────────────────────────────────────────
+    sz_title    = u(22)
+    sz_label    = u(18)
+    sz_time     = u(24)
+    sz_btn      = u(20)
+    sz_status   = u(20)
+    sz_diff     = u(18)
+
+    f_appname = get_font("arial.ttf",   sz_title)
+    f_label   = get_font("arialbd.ttf", sz_label)
+    f_time    = get_font("cour.ttf",    sz_time)
+    f_btn     = get_font("arial.ttf",   sz_btn)
+    f_status  = get_font("arialbd.ttf", sz_status)
+    f_diff    = get_font("cour.ttf",    sz_diff)
+
+    # ═══════════════════════════════════════════════════
+    # 1. WINDOW BACKGROUND
+    # ═══════════════════════════════════════════════════
     draw.rounded_rectangle([bx, by, bx+BOX_W, by+BOX_H], radius=RADIUS, fill=C_WIN_BG)
 
-    # ── TITLEBAR ──────────────────────────────────────────────────────────
-    TITLE_H = s(38 if size_mode == "medium" else 30)
-    draw.rounded_rectangle([bx, by, bx+BOX_W, by+TITLE_H+RADIUS], radius=RADIUS, fill=C_TITLE_BG)
+    # ═══════════════════════════════════════════════════
+    # 2. TITLEBAR
+    # ═══════════════════════════════════════════════════
+    draw.rounded_rectangle(
+        [bx, by, bx+BOX_W, by+TITLE_H+RADIUS],
+        radius=RADIUS, fill=C_TITLE_BG
+    )
     draw.rectangle([bx, by+TITLE_H, bx+BOX_W, by+TITLE_H+1], fill=C_DIVIDER)
 
+    # Traffic light dots
+    dot_sz = u(16)
+    dot_gap = u(26)
     for i, col in enumerate([(255,95,86,255),(255,189,46,255),(40,200,64,255)]):
-        cx = bx + s(18) + i * s(22)
-        draw.ellipse([cx, by+s(13), cx+s(13), by+s(26)], fill=col)
+        cx = bx + u(20) + i * dot_gap
+        cy = by + (TITLE_H - dot_sz) // 2
+        draw.ellipse([cx, cy, cx+dot_sz, cy+dot_sz], fill=col)
 
-    title_bbox = draw.textbbox((0,0), "Bob's Time", font=f_appname)
-    tw = title_bbox[2] - title_bbox[0]
-    safe_text(draw, (bx + (BOX_W-tw)//2, by+s(12)), "Bob's Time", C_GRAY, f_appname)
+    # App name center
+    app_text = "Bob's Time"
+    tb = draw.textbbox((0,0), app_text, font=f_appname)
+    tw = tb[2] - tb[0]
+    th = tb[3] - tb[1]
+    safe_text(draw,
+        (bx + (BOX_W - tw) // 2, by + (TITLE_H - th) // 2),
+        app_text, C_GRAY_TITL, f_appname
+    )
 
-    # ── LAYOUT PARAMS ─────────────────────────────────────────────────────
-    BODY_Y = by + TITLE_H + s(12)
+    # ═══════════════════════════════════════════════════
+    # 3. BODY (putih solid)
+    # ═══════════════════════════════════════════════════
+    BODY_TOP    = by + TITLE_H + 1
+    FOOTER_TOP  = by + BOX_H - FOOTER_H
 
-    if size_mode == "small":
-        BTN_W        = s(98)
-        PANEL_X      = bx + s(18)
-        PANEL_W      = BOX_W - BTN_W - s(46)
-        BTN_X        = bx + BOX_W - BTN_W - s(14)
-        B_H          = s(24)
-        B_GAP        = s(7)
-        TIME_H       = s(28)    # REVISI: sedikit lebih tinggi untuk font besar
-        LABEL_GAP    = s(13)
-        TIME_TEXT_DY = s(5)
-        FOOT_H       = s(26)
-    else:
-        if is_landscape:
-            BTN_W        = s(122)
-            PANEL_X      = bx + s(18)
-            PANEL_W      = BOX_W - BTN_W - s(48)
-            BTN_X        = bx + BOX_W - BTN_W - s(14)
-            B_H          = s(32)
-            B_GAP        = s(9)
-            TIME_H       = s(34)   # REVISI: lebih tinggi
-            LABEL_GAP    = s(16)
-            TIME_TEXT_DY = s(9)    # REVISI: teks waktu lebih turun
-            FOOT_H       = s(32)
-        else:
-            BTN_W        = s(132)
-            PANEL_X      = bx + s(20)
-            PANEL_W      = BOX_W - BTN_W - s(56)
-            BTN_X        = bx + BOX_W - BTN_W - s(16)
-            B_H          = s(34)
-            B_GAP        = s(10)
-            TIME_H       = s(36)
-            LABEL_GAP    = s(17)
-            TIME_TEXT_DY = s(8)
-            FOOT_H       = s(34)
+    draw.rectangle([bx, BODY_TOP, bx+BOX_W, FOOTER_TOP], fill=C_BODY_BG)
+    draw.rectangle([bx, BODY_TOP, bx+BOX_W, BODY_TOP+1], fill=C_DIVIDER)
 
-    # ── BODY PUTIH SOLID ──────────────────────────────────────────────────
-    FOOT_Y          = by + BOX_H - FOOT_H
-    BODY_TOP        = by + TITLE_H + 1
-    BODY_BOTTOM     = FOOT_Y
+    # Layout: panel kiri + tombol kanan
+    BTN_W   = u(200)
+    BTN_PAD = u(16)
+    PANEL_X = bx + u(22)
+    PANEL_W = BOX_W - BTN_W - u(22) - BTN_PAD - u(14)
+    BTN_X   = bx + BOX_W - BTN_W - u(14)
 
-    draw.rectangle([bx, BODY_TOP, bx+BOX_W, BODY_BOTTOM], fill=C_BODY_BG)
-    draw.rectangle([bx, BODY_TOP, bx+BOX_W, BODY_TOP+1],  fill=C_DIVIDER)
+    # Cursor y untuk panel kiri
+    cur_y = BODY_TOP + BODY_PAD_T
 
-    # Panel UTC
-    safe_text(draw, (PANEL_X, BODY_Y), "SERVER TIME (UTC)", C_GRAY, f_label)
-    U_Y = BODY_Y + LABEL_GAP
-    draw.rounded_rectangle([PANEL_X, U_Y, PANEL_X+PANEL_W, U_Y+TIME_H], radius=s(8), fill=C_TIME_BG)
-    safe_text(draw, (PANEL_X+s(14), U_Y+TIME_TEXT_DY), line_utc, C_TEAL, f_time)
+    # Label UTC
+    safe_text(draw, (PANEL_X, cur_y), "SERVER TIME (UTC)", C_GRAY_LBL, f_label)
+    cur_y += LABEL_H
 
-    # Panel Local
-    L_LBL_Y = U_Y + TIME_H + s(8 if size_mode == "small" else 10)
-    safe_text(draw, (PANEL_X, L_LBL_Y), "LOCAL PC TIME", C_GRAY, f_label)
-    L_Y = L_LBL_Y + LABEL_GAP
-    draw.rounded_rectangle([PANEL_X, L_Y, PANEL_X+PANEL_W, L_Y+TIME_H], radius=s(8), fill=C_TIME_BG)
-    safe_text(draw, (PANEL_X+s(14), L_Y+TIME_TEXT_DY), line_local, C_YELLOW, f_time)
+    # Kotak UTC
+    draw.rounded_rectangle(
+        [PANEL_X, cur_y, PANEL_X+PANEL_W, cur_y+TIMEBOX_H],
+        radius=u(10), fill=C_TIMEBOX
+    )
+    tb_u = draw.textbbox((0,0), line_utc, font=f_time)
+    th_u = tb_u[3] - tb_u[1]
+    safe_text(draw,
+        (PANEL_X + u(16), cur_y + (TIMEBOX_H - th_u) // 2),
+        line_utc, C_TEAL, f_time
+    )
+    cur_y += TIMEBOX_H + GAP_INNER
 
-    # Tombol kanan
-    B1Y = BODY_Y + s(2)
-    draw.rounded_rectangle([BTN_X, B1Y, BTN_X+BTN_W, B1Y+B_H], radius=s(8), fill=C_BTN_SYNC)
-    safe_text(draw, (BTN_X+s(14), B1Y+s(7)), "Sync Now", C_WHITE, f_btn)
+    # Label Local
+    safe_text(draw, (PANEL_X, cur_y), "LOCAL PC TIME", C_GRAY_LBL, f_label)
+    cur_y += LABEL_H
 
-    B2Y = B1Y + B_H + B_GAP
-    draw.rounded_rectangle([BTN_X, B2Y, BTN_X+BTN_W, B2Y+B_H], radius=s(8), fill=C_BTN_AUTO)
-    safe_text(draw, (BTN_X+s(12), B2Y+s(7)), "Auto Sync", C_SILVER, f_btn)
+    # Kotak Local
+    draw.rounded_rectangle(
+        [PANEL_X, cur_y, PANEL_X+PANEL_W, cur_y+TIMEBOX_H],
+        radius=u(10), fill=C_TIMEBOX
+    )
+    tb_l = draw.textbbox((0,0), line_local, font=f_time)
+    th_l = tb_l[3] - tb_l[1]
+    safe_text(draw,
+        (PANEL_X + u(16), cur_y + (TIMEBOX_H - th_l) // 2),
+        line_local, C_YELLOW, f_time
+    )
 
-    B3Y = B2Y + B_H + B_GAP
-    draw.rounded_rectangle([BTN_X, B3Y, BTN_X+BTN_W, B3Y+B_H], radius=s(8), fill=C_BTN_SET)
-    safe_text(draw, (BTN_X+s(14), B3Y+s(7)), "Settings", C_SILVER, f_btn)
+    # Tombol kanan — vertikal centered dalam body
+    B_H   = u(52)
+    B_GAP = u(14)
+    total_btn_h = B_H * 3 + B_GAP * 2
+    b_start_y = BODY_TOP + (BODY_H - total_btn_h) // 2
 
-    # ── FOOTER PUTIH SOLID ────────────────────────────────────────────────
-    draw.rectangle([bx, FOOT_Y, bx+BOX_W, by+BOX_H],   fill=C_FOOTER)
-    draw.rectangle([bx, FOOT_Y, bx+BOX_W, FOOT_Y+1],   fill=C_DIV_FOOT)
+    # Sync Now
+    draw.rounded_rectangle(
+        [BTN_X, b_start_y, BTN_X+BTN_W, b_start_y+B_H],
+        radius=u(10), fill=C_BTN_SYNC
+    )
+    tb_b = draw.textbbox((0,0), "Sync Now", font=f_btn)
+    bw = tb_b[2] - tb_b[0]
+    bh = tb_b[3] - tb_b[1]
+    safe_text(draw,
+        (BTN_X + (BTN_W - bw) // 2, b_start_y + (B_H - bh) // 2),
+        "Sync Now", C_WHITE, f_btn
+    )
 
-    draw.ellipse([bx+s(20), FOOT_Y+s(8), bx+s(30), FOOT_Y+s(18)], fill=C_GREEN)
-    safe_text(draw, (bx+s(38), FOOT_Y+s(5)), "Synced Perfectly", C_GREEN, f_status)
+    # Auto Sync
+    b2y = b_start_y + B_H + B_GAP
+    draw.rounded_rectangle(
+        [BTN_X, b2y, BTN_X+BTN_W, b2y+B_H],
+        radius=u(10), fill=C_BTN_AUTO
+    )
+    tb_b2 = draw.textbbox((0,0), "Auto Sync", font=f_btn)
+    bw2 = tb_b2[2] - tb_b2[0]
+    bh2 = tb_b2[3] - tb_b2[1]
+    safe_text(draw,
+        (BTN_X + (BTN_W - bw2) // 2, b2y + (B_H - bh2) // 2),
+        "Auto Sync", C_SILVER, f_btn
+    )
 
-    diff = "diff: 0.0s via NIST"
-    diff_bbox = draw.textbbox((0,0), diff, font=f_diff)
-    dw = diff_bbox[2] - diff_bbox[0]
-    safe_text(draw, (bx+BOX_W-dw-s(16), FOOT_Y+s(6)), diff, C_GRAY, f_diff)
+    # Settings
+    b3y = b2y + B_H + B_GAP
+    draw.rounded_rectangle(
+        [BTN_X, b3y, BTN_X+BTN_W, b3y+B_H],
+        radius=u(10), fill=C_BTN_SET
+    )
+    tb_b3 = draw.textbbox((0,0), "Settings", font=f_btn)
+    bw3 = tb_b3[2] - tb_b3[0]
+    bh3 = tb_b3[3] - tb_b3[1]
+    safe_text(draw,
+        (BTN_X + (BTN_W - bw3) // 2, b3y + (B_H - bh3) // 2),
+        "Settings", C_SILVER, f_btn
+    )
 
+    # ═══════════════════════════════════════════════════
+    # 4. FOOTER (putih solid)
+    # ═══════════════════════════════════════════════════
+    draw.rectangle([bx, FOOTER_TOP, bx+BOX_W, by+BOX_H], fill=C_FOOTER_BG)
+    draw.rectangle([bx, FOOTER_TOP, bx+BOX_W, FOOTER_TOP+1], fill=C_DIV_LIGHT)
+
+    dot_f = u(14)
+    dot_fy = FOOTER_TOP + (FOOTER_H - dot_f) // 2
+    draw.ellipse([bx+u(22), dot_fy, bx+u(22)+dot_f, dot_fy+dot_f], fill=C_GREEN)
+
+    tb_s = draw.textbbox((0,0), "Synced Perfectly", font=f_status)
+    sh = tb_s[3] - tb_s[1]
+    safe_text(draw,
+        (bx + u(22) + dot_f + u(10), FOOTER_TOP + (FOOTER_H - sh) // 2),
+        "Synced Perfectly", C_GREEN, f_status
+    )
+
+    diff_text = "diff: 0.0s via NIST"
+    tb_d = draw.textbbox((0,0), diff_text, font=f_diff)
+    dw = tb_d[2] - tb_d[0]
+    dh = tb_d[3] - tb_d[1]
+    safe_text(draw,
+        (bx + BOX_W - dw - u(18), FOOTER_TOP + (FOOTER_H - dh) // 2),
+        diff_text, C_GRAY_LBL, f_diff
+    )
+
+    # ═══════════════════════════════════════════════════
+    # 5. RENDER
+    # ═══════════════════════════════════════════════════
     result = Image.alpha_composite(img, overlay)
     result.convert("RGB").save(output_path, quality=95)
 
 
+# ── Bot handlers ──────────────────────────────────────────────────────────────
 def send_message(chat_id: int, text: str) -> None:
     try:
-        requests.post(f"{URL}/sendMessage", data={"chat_id": chat_id, "text": text}, timeout=20)
+        requests.post(f"{URL}/sendMessage",
+                      data={"chat_id": chat_id, "text": text}, timeout=20)
     except Exception as e:
         print(f"[send_message] Error: {e}")
 
@@ -300,7 +336,8 @@ def send_message(chat_id: int, text: str) -> None:
 def send_photo(chat_id: int, photo_path: str, caption: str = "") -> None:
     try:
         with open(photo_path, "rb") as f:
-            requests.post(f"{URL}/sendPhoto", data={"chat_id": chat_id, "caption": caption},
+            requests.post(f"{URL}/sendPhoto",
+                          data={"chat_id": chat_id, "caption": caption},
                           files={"photo": f}, timeout=60)
     except Exception as e:
         print(f"[send_photo] Error: {e}")
@@ -308,13 +345,14 @@ def send_photo(chat_id: int, photo_path: str, caption: str = "") -> None:
 
 def download_file(file_id: str, path: str) -> bool:
     try:
-        file_info = requests.get(f"{URL}/getFile", params={"file_id": file_id}, timeout=20).json()
-        if not file_info.get("ok"):
-            print(f"[download_file] getFile gagal: {file_info}")
+        info = requests.get(f"{URL}/getFile",
+                            params={"file_id": file_id}, timeout=20).json()
+        if not info.get("ok"):
+            print(f"[download_file] gagal: {info}")
             return False
-        file_path = file_info["result"]["file_path"]
+        fp = info["result"]["file_path"]
         content = requests.get(
-            f"https://api.telegram.org/file/bot{TOKEN}/{file_path}", timeout=60
+            f"https://api.telegram.org/file/bot{TOKEN}/{fp}", timeout=60
         ).content
         with open(path, "wb") as f:
             f.write(content)
@@ -334,23 +372,12 @@ def get_updates(offset=None):
         return {"result": []}
 
 
-def detect_size_mode_from_text(text: str, default_mode: str = "medium") -> str:
-    if not text:
-        return default_mode
-    t = text.lower().strip()
-    if "small" in t or "kecil" in t:
-        return "small"
-    if "medium" in t or "sedang" in t:
-        return "medium"
-    return default_mode
-
-
 def cleanup_file(path: str):
     try:
         if os.path.exists(path):
             os.remove(path)
-    except Exception as e:
-        print(f"[cleanup_file] Error: {e}")
+    except Exception:
+        pass
 
 
 def handle_photo_message(msg: dict):
@@ -358,30 +385,26 @@ def handle_photo_message(msg: dict):
     if not chat_id:
         return
 
-    caption = msg.get("caption", "")
-    default_mode = USER_SIZE_MODE.get(chat_id, "medium")
-    size_mode = detect_size_mode_from_text(caption, default_mode)
-
     photo_list = msg.get("photo", [])
     if not photo_list:
         send_message(chat_id, "Foto tidak ditemukan.")
         return
 
-    file_id = photo_list[-1]["file_id"]
-    unique_id = uuid.uuid4().hex
+    file_id     = photo_list[-1]["file_id"]
+    unique_id   = uuid.uuid4().hex
     input_path  = f"/tmp/input_{chat_id}_{unique_id}.jpg"
     output_path = f"/tmp/output_{chat_id}_{unique_id}.jpg"
 
-    send_message(chat_id, f"Foto diterima. Memproses watermark mode: {size_mode}...")
+    send_message(chat_id, "Memproses watermark...")
 
     try:
         if not download_file(file_id, input_path):
             send_message(chat_id, "Gagal mengunduh foto.")
             return
-        add_watermark(input_path, output_path, size_mode=size_mode)
-        send_photo(chat_id, output_path, caption=f"Watermark {size_mode} berhasil ditambahkan.")
+        add_watermark(input_path, output_path)
+        send_photo(chat_id, output_path, caption="Watermark berhasil ditambahkan.")
     except Exception as e:
-        print(f"[handle_photo_message] Error: {e}")
+        print(f"[handle_photo] Error: {e}")
         send_message(chat_id, "Gagal memproses gambar.")
     finally:
         cleanup_file(input_path)
@@ -402,7 +425,7 @@ def main():
 
         for update in data.get("result", []):
             offset = update["update_id"] + 1
-            msg = update.get("message", {})
+            msg    = update.get("message", {})
             chat_id = msg.get("chat", {}).get("id")
             if not chat_id:
                 continue
@@ -410,33 +433,17 @@ def main():
             text = msg.get("text", "").strip().lower()
 
             if text == "/start":
-                USER_SIZE_MODE[chat_id] = "medium"
                 send_message(chat_id,
                     "Halo! Kirimkan foto dan saya akan menambahkan watermark Bob's Time.\n\n"
-                    "Perintah yang tersedia:\n"
-                    "/small  -> set mode default ke small\n"
-                    "/medium -> set mode default ke medium\n"
-                    "/help   -> bantuan\n\n"
-                    "Anda juga bisa kirim foto dengan caption: small atau medium")
+                    "Watermark otomatis menyesuaikan ukuran gambar (portrait maupun landscape).\n\n"
+                    "/help untuk bantuan.")
                 continue
 
             if text == "/help":
                 send_message(chat_id,
                     "Cara penggunaan:\n\n"
-                    "1. Kirim /small untuk watermark kecil\n"
-                    "2. Kirim /medium untuk watermark sedang\n"
-                    "3. Kirim foto\n\n"
-                    "Atau kirim foto dengan caption: small / medium")
-                continue
-
-            if text == "/small":
-                USER_SIZE_MODE[chat_id] = "small"
-                send_message(chat_id, "Mode default watermark diubah ke: small")
-                continue
-
-            if text == "/medium":
-                USER_SIZE_MODE[chat_id] = "medium"
-                send_message(chat_id, "Mode default watermark diubah ke: medium")
+                    "Cukup kirim foto — watermark akan otomatis menyesuaikan ukuran dan orientasi gambar.\n\n"
+                    "Tidak perlu pilih ukuran manual.")
                 continue
 
             if "photo" in msg:
@@ -444,11 +451,8 @@ def main():
                 continue
 
             if msg:
-                current_mode = USER_SIZE_MODE.get(chat_id, "medium")
                 send_message(chat_id,
-                    f"Mode saat ini: {current_mode}\n"
-                    "Kirim foto untuk mendapatkan watermark waktu.\n"
-                    "Gunakan /small atau /medium untuk mengganti ukuran.")
+                    "Kirim foto untuk mendapatkan watermark waktu otomatis.")
 
         time.sleep(1)
 
