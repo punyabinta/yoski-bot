@@ -85,28 +85,23 @@ def add_watermark(input_path: str, output_path: str) -> None:
     line_utc   = format_time(utc)
     line_local = format_time(local)
 
-    # ── DUA UNIT SKALA ───────────────────────────────────────────────────
-    # uh() : tinggi komponen vertikal — berbasis H
-    # us() : font & padding horizontal — berbasis min(W,H) agar konsisten
-    REF_H     = 1920.0
-    REF_SHORT = 1080.0
-    unit_h    = H / REF_H
-    unit_s    = min(W, H) / REF_SHORT
+    # ── SATU UNIT SKALA BERBASIS LEBAR GAMBAR (W) ───────────────────────
+    # Semua elemen — font, tinggi, padding — proporsional terhadap W
+    # Ini memastikan teks SELALU muat karena referensi sama dengan lebar box
+    REF_W = 1920.0   # referensi lebar landscape full-HD
+    unit  = W / REF_W
 
-    def uh(v):
-        return max(1, int(v * unit_h))
+    def u(v):
+        return max(2, int(v * unit))
 
-    def us(v):
-        return max(1, int(v * unit_s))
-
-    # ── FONT (dihitung dulu, sebelum BOX_W) ──────────────────────────────
-    # Portrait: font waktu lebih kecil agar muat di layar sempit
-    sz_title  = us(29)
-    sz_label  = us(23)
-    sz_time   = us(24) if is_portrait else us(31)
-    sz_btn    = us(26)
-    sz_status = us(26)
-    sz_diff   = us(23)
+    # ── FONT ─────────────────────────────────────────────────────────────
+    # Batas minimum font agar tetap terbaca di gambar kecil
+    sz_title  = max(11, u(26))
+    sz_label  = max(9,  u(20))
+    sz_time   = max(10, u(22))
+    sz_btn    = max(10, u(22))
+    sz_status = max(10, u(22))
+    sz_diff   = max(9,  u(20))
 
     f_appname = get_font("arial.ttf",   sz_title)
     f_label   = get_font("arialbd.ttf", sz_label)
@@ -121,48 +116,44 @@ def add_watermark(input_path: str, output_path: str) -> None:
     _tb = _dummy_draw.textbbox((0, 0), sample_time, font=f_time)
     TIME_TEXT_W = _tb[2] - _tb[0]
 
-    # ── BOX_W: hitung dari kebutuhan teks aktual ─────────────────────────
-    # Portrait : panel=73%, btn=20%, pad=7%  -> BOX_W = NEED/0.73
-    # Landscape: panel=66%, btn=26%, pad=8%  -> BOX_W = NEED/0.66
-    _TIME_PAD_INSIDE = us(24)
-    NEEDED_PANEL_W   = TIME_TEXT_W + _TIME_PAD_INSIDE
+    # ── LAYOUT PROPORSI TETAP ─────────────────────────────────────────────
+    # BOX_W dibagi: 68% panel kiri + 26% tombol + 6% padding/gap
+    # Sehingga BOX_W minimum = TIME_TEXT_W / 0.62  (panel - padding dalam)
+    _PAD_IN   = u(28)                          # padding kiri+kanan dalam timebox
+    _PANEL_R  = 0.62                           # panel / BOX_W
+    MIN_BOX_W = int((TIME_TEXT_W + _PAD_IN) / _PANEL_R) + 4
 
+    # Rasio target: portrait 55% W, landscape 55% W — sama, karena u() berbasis W
+    # MIN_BOX_W sudah cukup untuk muat teks, pakai itu sebagai dasar
     if is_portrait:
-        _panel_ratio = 0.73
-        _btn_ratio   = 0.20
-        _raw_ratio   = 0.80
+        BOX_W = max(MIN_BOX_W, int(W * 0.55))
     else:
-        _panel_ratio = 0.66
-        _btn_ratio   = 0.26
-        _raw_ratio   = 0.42
+        BOX_W = max(MIN_BOX_W, int(W * 0.55))
+    BOX_W = min(BOX_W, W - 16)
 
-    MIN_BOX_W = int(NEEDED_PANEL_W / _panel_ratio) + 4
-    MAX_BOX_W = W - 16   # margin minimal 8px kiri+kanan
-    BOX_W     = min(max(MIN_BOX_W, int(W * _raw_ratio)), MAX_BOX_W)
-
-    # ── LAYOUT INTERNAL: semua berbasis BOX_W ────────────────────────────
-    _PAD_L   = int(BOX_W * 0.035)
+    # ── LAYOUT INTERNAL ───────────────────────────────────────────────────
+    _BTN_W   = int(BOX_W * 0.24)
+    _PAD_L   = int(BOX_W * 0.030)
     _PAD_R   = int(BOX_W * 0.020)
     _GAP_BTN = int(BOX_W * 0.020)
-    _BTN_W   = int(BOX_W * _btn_ratio)
 
-    # ── TINGGI BOX: dihitung dari komponen ──────────────────────────────
-    TITLE_H    = uh(68)
-    LABEL_H    = uh(36)
-    TIMEBOX_H  = uh(75)
-    GAP_INNER  = uh(23)
-    BODY_PAD_T = uh(23)
-    BODY_PAD_B = uh(18)
-    FOOTER_H   = uh(57)
+    # ── TINGGI BOX: semua berbasis u() ───────────────────────────────────
+    TITLE_H    = u(50)
+    LABEL_H    = u(28)
+    TIMEBOX_H  = u(54)
+    GAP_INNER  = u(16)
+    BODY_PAD_T = u(16)
+    BODY_PAD_B = u(14)
+    FOOTER_H   = u(42)
 
     BODY_H = BODY_PAD_T + LABEL_H + TIMEBOX_H + GAP_INNER + LABEL_H + TIMEBOX_H + BODY_PAD_B
     BOX_H  = TITLE_H + BODY_H + FOOTER_H
 
-    RADIUS = uh(20)
+    RADIUS = u(14)
 
     # ── POSISI: pojok kanan bawah dengan margin ──────────────────────────
-    MARGIN_X = uh(28)
-    MARGIN_Y = uh(40) if is_portrait else uh(28)
+    MARGIN_X = u(24)
+    MARGIN_Y = u(24)
 
     bx = max(8, W - BOX_W - MARGIN_X)
     by = max(8, H - BOX_H - MARGIN_Y)
@@ -202,10 +193,10 @@ def add_watermark(input_path: str, output_path: str) -> None:
     draw.rectangle([bx, by+TITLE_H, bx+BOX_W, by+TITLE_H+1], fill=C_DIVIDER)
 
     # Traffic light dots
-    dot_sz = us(16)
-    dot_gap = us(26)
+    dot_sz = u(16)
+    dot_gap = u(26)
     for i, col in enumerate([(255,95,86,255),(255,189,46,255),(40,200,64,255)]):
-        cx = bx + us(20) + i * dot_gap
+        cx = bx + u(20) + i * dot_gap
         cy = by + (TITLE_H - dot_sz) // 2
         draw.ellipse([cx, cy, cx+dot_sz, cy+dot_sz], fill=col)
 
@@ -247,12 +238,12 @@ def add_watermark(input_path: str, output_path: str) -> None:
     # Kotak UTC
     draw.rounded_rectangle(
         [PANEL_X, cur_y, PANEL_X+PANEL_W, cur_y+TIMEBOX_H],
-        radius=us(10), fill=C_TIMEBOX
+        radius=u(10), fill=C_TIMEBOX
     )
     tb_u = draw.textbbox((0,0), line_utc, font=f_time)
     th_u = tb_u[3] - tb_u[1]
     safe_text(draw,
-        (PANEL_X + us(16), cur_y + (TIMEBOX_H - th_u) // 2),
+        (PANEL_X + u(16), cur_y + (TIMEBOX_H - th_u) // 2),
         line_utc, C_TEAL, f_time
     )
     cur_y += TIMEBOX_H + GAP_INNER
@@ -264,25 +255,25 @@ def add_watermark(input_path: str, output_path: str) -> None:
     # Kotak Local
     draw.rounded_rectangle(
         [PANEL_X, cur_y, PANEL_X+PANEL_W, cur_y+TIMEBOX_H],
-        radius=us(10), fill=C_TIMEBOX
+        radius=u(10), fill=C_TIMEBOX
     )
     tb_l = draw.textbbox((0,0), line_local, font=f_time)
     th_l = tb_l[3] - tb_l[1]
     safe_text(draw,
-        (PANEL_X + us(16), cur_y + (TIMEBOX_H - th_l) // 2),
+        (PANEL_X + u(16), cur_y + (TIMEBOX_H - th_l) // 2),
         line_local, C_YELLOW, f_time
     )
 
     # Tombol kanan — vertikal centered dalam body
-    B_H   = uh(52)
-    B_GAP = uh(14)
+    B_H   = u(52)
+    B_GAP = u(14)
     total_btn_h = B_H * 3 + B_GAP * 2
     b_start_y = BODY_TOP + (BODY_H - total_btn_h) // 2
 
     # Sync Now
     draw.rounded_rectangle(
         [BTN_X, b_start_y, BTN_X+BTN_W, b_start_y+B_H],
-        radius=us(10), fill=C_BTN_SYNC
+        radius=u(10), fill=C_BTN_SYNC
     )
     tb_b = draw.textbbox((0,0), "Sync Now", font=f_btn)
     bw = tb_b[2] - tb_b[0]
@@ -296,7 +287,7 @@ def add_watermark(input_path: str, output_path: str) -> None:
     b2y = b_start_y + B_H + B_GAP
     draw.rounded_rectangle(
         [BTN_X, b2y, BTN_X+BTN_W, b2y+B_H],
-        radius=us(10), fill=C_BTN_AUTO
+        radius=u(10), fill=C_BTN_AUTO
     )
     tb_b2 = draw.textbbox((0,0), "Auto Sync", font=f_btn)
     bw2 = tb_b2[2] - tb_b2[0]
@@ -310,7 +301,7 @@ def add_watermark(input_path: str, output_path: str) -> None:
     b3y = b2y + B_H + B_GAP
     draw.rounded_rectangle(
         [BTN_X, b3y, BTN_X+BTN_W, b3y+B_H],
-        radius=us(10), fill=C_BTN_SET
+        radius=u(10), fill=C_BTN_SET
     )
     tb_b3 = draw.textbbox((0,0), "Settings", font=f_btn)
     bw3 = tb_b3[2] - tb_b3[0]
@@ -326,14 +317,14 @@ def add_watermark(input_path: str, output_path: str) -> None:
     draw.rectangle([bx, FOOTER_TOP, bx+BOX_W, by+BOX_H], fill=C_FOOTER_BG)
     draw.rectangle([bx, FOOTER_TOP, bx+BOX_W, FOOTER_TOP+1], fill=C_DIV_LIGHT)
 
-    dot_f = uh(14)
+    dot_f = u(14)
     dot_fy = FOOTER_TOP + (FOOTER_H - dot_f) // 2
-    draw.ellipse([bx+uh(22), dot_fy, bx+uh(22)+dot_f, dot_fy+dot_f], fill=C_GREEN)
+    draw.ellipse([bx+u(22), dot_fy, bx+u(22)+dot_f, dot_fy+dot_f], fill=C_GREEN)
 
     tb_s = draw.textbbox((0,0), "Synced Perfectly", font=f_status)
     sh = tb_s[3] - tb_s[1]
     safe_text(draw,
-        (bx + uh(22) + dot_f + uh(10), FOOTER_TOP + (FOOTER_H - sh) // 2),
+        (bx + u(22) + dot_f + u(10), FOOTER_TOP + (FOOTER_H - sh) // 2),
         "Synced Perfectly", C_GREEN, f_status
     )
 
@@ -342,7 +333,7 @@ def add_watermark(input_path: str, output_path: str) -> None:
     dw = tb_d[2] - tb_d[0]
     dh = tb_d[3] - tb_d[1]
     safe_text(draw,
-        (bx + BOX_W - dw - uh(18), FOOTER_TOP + (FOOTER_H - dh) // 2),
+        (bx + BOX_W - dw - u(18), FOOTER_TOP + (FOOTER_H - dh) // 2),
         diff_text, C_GRAY_LBL, f_diff
     )
 
