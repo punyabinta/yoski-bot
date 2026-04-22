@@ -11,6 +11,8 @@ from datetime import datetime, timezone, timedelta
 TOKEN = os.getenv("BOT_TOKEN")
 URL = f"https://api.telegram.org/bot{TOKEN}"
 
+USER_DEVICE_MODE = {}   # per chat_id: "hp" | "tab" | "pc"
+
 
 # ── Health check ──────────────────────────────────────────────────────────────
 class HealthHandler(BaseHTTPRequestHandler):
@@ -72,7 +74,7 @@ def safe_text(draw, xy, text, fill, font):
 
 
 # ── Core watermark ────────────────────────────────────────────────────────────
-def add_watermark(input_path: str, output_path: str) -> None:
+def add_watermark(input_path: str, output_path: str, device: str = "hp") -> None:
     img = Image.open(input_path).convert("RGBA")
     W, H = img.size
     is_portrait = H >= W   # square dianggap portrait
@@ -116,21 +118,43 @@ def add_watermark(input_path: str, output_path: str) -> None:
     _tb = _dummy_draw.textbbox((0, 0), sample_time, font=f_time)
     TIME_TEXT_W = _tb[2] - _tb[0]
 
-    # ── LAYOUT PROPORSI TETAP ─────────────────────────────────────────────
-    # BOX_W dibagi: 68% panel kiri + 26% tombol + 6% padding/gap
-    # Sehingga BOX_W minimum = TIME_TEXT_W / 0.62  (panel - padding dalam)
-    _PAD_IN   = u(28)                          # padding kiri+kanan dalam timebox
-    _PANEL_R  = 0.62                           # panel / BOX_W
+    # ── PROPORSI PER DEVICE ───────────────────────────────────────────────
+    # hp  : watermark kecil-sedang, cocok untuk foto dari HP
+    # tab : watermark sedang, cocok untuk foto/screenshot tablet
+    # pc  : watermark besar, cocok untuk screenshot desktop/monitor
+    #
+    # box_ratio  = lebar watermark / lebar gambar
+    # font_scale = pengali tambahan untuk font (1.0 = tidak berubah)
+    # h_scale    = pengali tambahan untuk tinggi komponen
+    _DEVICE_CFG = {
+        "hp":  {"box_ratio": 0.385, "font_scale": 1.00, "h_scale": 1.00},
+        "tab": {"box_ratio": 0.520, "font_scale": 1.20, "h_scale": 1.20},
+        "pc":  {"box_ratio": 0.650, "font_scale": 1.45, "h_scale": 1.45},
+    }
+    _cfg        = _DEVICE_CFG.get(device, _DEVICE_CFG["hp"])
+    _box_ratio  = _cfg["box_ratio"]
+    _font_scale = _cfg["font_scale"]
+    _h_scale    = _cfg["h_scale"]
+
+    # Terapkan font_scale ke ukuran font
+    _fs = lambda base_sz: max(9, int(base_sz * _font_scale))
+    f_appname = get_font("arial.ttf",   _fs(sz_title))
+    f_label   = get_font("arialbd.ttf", _fs(sz_label))
+    f_time    = get_font("cour.ttf",    _fs(sz_time))
+    f_btn     = get_font("arial.ttf",   _fs(sz_btn))
+    f_status  = get_font("arialbd.ttf", _fs(sz_status))
+    f_diff    = get_font("cour.ttf",    _fs(sz_diff))
+
+    # Ukur ulang teks dengan font yang sudah discale
+    _tb2        = _dummy_draw.textbbox((0, 0), sample_time, font=f_time)
+    TIME_TEXT_W = _tb2[2] - _tb2[0]
+
+    # MIN_BOX_W dari teks aktual
+    _PAD_IN   = max(2, int(u(28) * _font_scale))
+    _PANEL_R  = 0.62
     MIN_BOX_W = int((TIME_TEXT_W + _PAD_IN) / _PANEL_R) + 4
 
-    # Rasio target: portrait 55% W, landscape 55% W — sama, karena u() berbasis W
-    # MIN_BOX_W sudah cukup untuk muat teks, pakai itu sebagai dasar
-    # Lebar dikurangi 30% dari sebelumnya (0.55 * 0.70 = 0.385)
-    # MIN_BOX_W tetap sebagai batas bawah agar teks tidak overflow
-    if is_portrait:
-        BOX_W = max(MIN_BOX_W, int(W * 0.385))
-    else:
-        BOX_W = max(MIN_BOX_W, int(W * 0.385))
+    BOX_W = max(MIN_BOX_W, int(W * _box_ratio))
     BOX_W = min(BOX_W, W - 16)
 
     # ── LAYOUT INTERNAL ───────────────────────────────────────────────────
@@ -139,19 +163,20 @@ def add_watermark(input_path: str, output_path: str) -> None:
     _PAD_R   = int(BOX_W * 0.020)
     _GAP_BTN = int(BOX_W * 0.020)
 
-    # ── TINGGI BOX: semua berbasis u() ───────────────────────────────────
-    TITLE_H    = u(50)
-    LABEL_H    = u(28)
-    TIMEBOX_H  = u(54)
-    GAP_INNER  = u(16)
-    BODY_PAD_T = u(16)
-    BODY_PAD_B = u(14)
-    FOOTER_H   = u(42)
+    # ── TINGGI BOX: berbasis u() × h_scale ─────────────────────────────
+    def uh(v): return max(2, int(u(v) * _h_scale))
+    TITLE_H    = uh(50)
+    LABEL_H    = uh(28)
+    TIMEBOX_H  = uh(54)
+    GAP_INNER  = uh(16)
+    BODY_PAD_T = uh(16)
+    BODY_PAD_B = uh(14)
+    FOOTER_H   = uh(42)
 
     BODY_H = BODY_PAD_T + LABEL_H + TIMEBOX_H + GAP_INNER + LABEL_H + TIMEBOX_H + BODY_PAD_B
     BOX_H  = TITLE_H + BODY_H + FOOTER_H
 
-    RADIUS = u(14)
+    RADIUS = uh(14)
 
     # ── POSISI: pojok kanan bawah dengan margin ──────────────────────────
     MARGIN_X = u(24)
@@ -407,6 +432,8 @@ def handle_photo_message(msg: dict):
     if not chat_id:
         return
 
+    device = USER_DEVICE_MODE.get(chat_id, "hp")
+
     photo_list = msg.get("photo", [])
     if not photo_list:
         send_message(chat_id, "Foto tidak ditemukan.")
@@ -417,14 +444,14 @@ def handle_photo_message(msg: dict):
     input_path  = f"/tmp/input_{chat_id}_{unique_id}.jpg"
     output_path = f"/tmp/output_{chat_id}_{unique_id}.jpg"
 
-    send_message(chat_id, "Memproses watermark...")
+    send_message(chat_id, f"Memproses watermark (mode: {device})...")
 
     try:
         if not download_file(file_id, input_path):
             send_message(chat_id, "Gagal mengunduh foto.")
             return
-        add_watermark(input_path, output_path)
-        send_photo(chat_id, output_path, caption="Watermark berhasil ditambahkan.")
+        add_watermark(input_path, output_path, device=device)
+        send_photo(chat_id, output_path, caption=f"✅ Watermark [{device.upper()}] berhasil ditambahkan.")
     except Exception as e:
         print(f"[handle_photo] Error: {e}")
         send_message(chat_id, "Gagal memproses gambar.")
@@ -470,17 +497,41 @@ def main():
             text = msg.get("text", "").strip().lower()
 
             if text == "/start":
+                USER_DEVICE_MODE[chat_id] = "hp"
                 send_message(chat_id,
-                    "Halo! Kirimkan foto dan saya akan menambahkan watermark Bob's Time.\n\n"
-                    "Watermark otomatis menyesuaikan ukuran gambar (portrait maupun landscape).\n\n"
+                    "Halo! Saya bot watermark Bob's Time.\n\n"
+                    "Pilih mode perangkat terlebih dahulu:\n"
+                    "/hp  — HP (watermark kecil)\n"
+                    "/tab — Tablet (watermark sedang)\n"
+                    "/pc  — PC/Monitor (watermark besar)\n\n"
+                    "Default: HP\n"
                     "/help untuk bantuan.")
                 continue
 
             if text == "/help":
+                current = USER_DEVICE_MODE.get(chat_id, "hp")
                 send_message(chat_id,
-                    "Cara penggunaan:\n\n"
-                    "Cukup kirim foto — watermark akan otomatis menyesuaikan ukuran dan orientasi gambar.\n\n"
-                    "Tidak perlu pilih ukuran manual.")
+                    f"Mode aktif saat ini: {current.upper()}\n\n"
+                    "Perintah:\n"
+                    "/hp  — set mode HP (watermark kecil)\n"
+                    "/tab — set mode Tablet (watermark sedang)\n"
+                    "/pc  — set mode PC/Monitor (watermark besar)\n\n"
+                    "Setelah memilih mode, kirim foto untuk mendapatkan watermark.")
+                continue
+
+            if text == "/hp":
+                USER_DEVICE_MODE[chat_id] = "hp"
+                send_message(chat_id, "✅ Mode HP aktif — watermark kecil.\nKirim foto sekarang.")
+                continue
+
+            if text == "/tab":
+                USER_DEVICE_MODE[chat_id] = "tab"
+                send_message(chat_id, "✅ Mode Tablet aktif — watermark sedang.\nKirim foto sekarang.")
+                continue
+
+            if text == "/pc":
+                USER_DEVICE_MODE[chat_id] = "pc"
+                send_message(chat_id, "✅ Mode PC aktif — watermark besar.\nKirim foto sekarang.")
                 continue
 
             if "photo" in msg:
@@ -488,8 +539,11 @@ def main():
                 continue
 
             if msg:
+                current = USER_DEVICE_MODE.get(chat_id, "hp")
                 send_message(chat_id,
-                    "Kirim foto untuk mendapatkan watermark waktu otomatis.")
+                    f"Mode aktif: {current.upper()}\n"
+                    "Kirim foto untuk mendapatkan watermark.\n"
+                    "Ganti mode: /hp | /tab | /pc")
 
         time.sleep(1)
 
