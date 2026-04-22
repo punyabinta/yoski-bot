@@ -125,10 +125,12 @@ def add_watermark(input_path: str, output_path: str) -> None:
 
     # Rasio target: portrait 55% W, landscape 55% W — sama, karena u() berbasis W
     # MIN_BOX_W sudah cukup untuk muat teks, pakai itu sebagai dasar
+    # Lebar dikurangi 30% dari sebelumnya (0.55 * 0.70 = 0.385)
+    # MIN_BOX_W tetap sebagai batas bawah agar teks tidak overflow
     if is_portrait:
-        BOX_W = max(MIN_BOX_W, int(W * 0.55))
+        BOX_W = max(MIN_BOX_W, int(W * 0.385))
     else:
-        BOX_W = max(MIN_BOX_W, int(W * 0.55))
+        BOX_W = max(MIN_BOX_W, int(W * 0.385))
     BOX_W = min(BOX_W, W - 16)
 
     # ── LAYOUT INTERNAL ───────────────────────────────────────────────────
